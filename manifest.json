@@ -1,0 +1,14 @@
+{
+  "display_name": "公平游戏裁定器",
+  "loading_order": 10,
+  "requires": [],
+  "optional": [],
+  "dependencies": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "咕咕",
+  "version": "0.6.1",
+  "homePage": "",
+  "auto_update": false,
+  "generate_interceptor": "fairGameRefereeInterceptor"
+}

@@ -1,0 +1,448 @@
+/* ===== 插件主抽屉设置优化 ===== */
+#fair-game-referee-settings .inline-drawer-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* ===== 主模态框 ===== */
+#fgr-control-modal{
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.5);
+    z-index: 35010;
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 40px;
+    padding-bottom: 16px;
+    padding-left: 20px;
+    padding-right: 20px;
+    box-sizing: border-box;
+}
+#fgr-control-modal .fgr-card{
+    width: min(1040px, 95vw);
+    max-height: calc(100vh - 64px);
+    border-radius: 12px;
+    background: var(--SmartThemeBlurTintColor, rgba(30,30,30,.9));
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,.12));
+    backdrop-filter: blur(10px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,.3);
+}
+
+/* ===== 顶部栏与标签页 ===== */
+.fgr-fixed-topbar{
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border-bottom: 1px solid rgba(255,255,255,.12);
+    background: var(--SmartThemeBlurTintColor, rgba(15,15,15,.85));
+    backdrop-filter: blur(10px);
+}
+.fgr-topbar-spacer{ flex: 1; }
+
+.fgr-icon-btn {
+    width: 40px !important;
+    height: 40px !important;
+    min-width: 40px;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    padding: 0 !important;
+    border-radius: 8px !important;
+    transition: all .2s ease-out;
+}
+.fgr-icon-btn svg{
+    width: 22px;
+    height: 22px;
+}
+.fgr-icon-btn.active{
+    background: var(--final-themecolor, #75a5e3) !important;
+    color: #fff !important;
+    filter: brightness(1.05);
+    outline: none;
+}
+.fgr-icon-btn:not(.active):hover{
+    background: rgba(255,255,255,.1) !important;
+}
+.fgr-close-btn{ color: #fff; }
+.fgr-close-btn:hover{ background: #d64949 !important; }
+
+/* ===== 内容区与滚动条 ===== */
+.fgr-body-scroll{
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+}
+.fgr-body-scroll::-webkit-scrollbar { width: 8px; }
+.fgr-body-scroll::-webkit-scrollbar-track { background: transparent; }
+.fgr-body-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,.2);
+    border-radius: 4px;
+}
+.fgr-body-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }
+
+.fgr-tab{ display: none; }
+.fgr-tab.active{ display: block; }
+.fgr-tab > .settings_section { margin-bottom: 16px; }
+
+/* ===== 表格美化 ===== */
+#fgr-control-modal table{
+    width: 100%;
+    border-collapse: collapse;
+    border-spacing: 0;
+}
+#fgr-control-modal th, #fgr-control-modal td{
+    border-bottom: 1px solid rgba(255,255,255,.08);
+    padding: 8px;
+    text-align: left;
+}
+#fgr-control-modal th {
+    background: rgba(255,255,255, .05);
+    font-size: 13px;
+    font-weight: 600;
+}
+#fgr-control-modal tbody tr:hover {
+    background: rgba(255,255,255, .04);
+}
+
+/* ===== 分割线 ===== */
+hr.sysHR {
+    border: none;
+    height: 1px;
+    background: linear-gradient(to right, transparent, rgba(255,255,255,.15), transparent);
+    margin: 24px 0;
+}
+
+/* ===== 输入框、下拉菜单、文本域 美化 ===== */
+#fgr-control-modal input[type="text"],
+#fgr-control-modal input[type="number"],
+#fgr-control-modal input[type="password"],
+#fgr-control-modal textarea,
+#fgr-control-modal select {
+    width: 100%;
+    background-color: rgba(0,0,0,.25);
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: var(--text-color, #fff);
+    transition: all .2s ease;
+    min-height: 40px;
+}
+
+#fgr-control-modal input[type="text"]:focus,
+#fgr-control-modal input[type="number"]:focus,
+#fgr-control-modal input[type="password"]:focus,
+#fgr-control-modal textarea:focus,
+#fgr-control-modal select:focus {
+    outline: none;
+    border-color: var(--final-themecolor, #75a5e3);
+    box-shadow: 0 0 0 2px rgba(117, 165, 227, .3);
+}
+
+#fgr-control-modal select { appearance: none; }
+#fgr-control-modal label {
+    display: block;
+    margin-bottom: 6px;
+    opacity: .9;
+    font-size: 13px;
+}
+
+/* ===== 地图区域 ===== */
+.fgr-map-library {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.fgr-map-toolbar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.fgr-map-toolbar .menu_button{
+    width: auto !important;
+}
+
+#fgr-board-wrap{
+    position: relative;
+    margin-top: 10px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,.14));
+    border-radius: 10px;
+    background: rgba(0,0,0,.2);
+    padding: 10px;
+}
+#fgr-board-canvas{
+    width: 100%;
+    display: block;
+    border-radius: 8px;
+    background: rgba(0,0,0,.15);
+    cursor: pointer;
+}
+
+/* ===== 棋盘中心透明骰盅 ===== */
+#fgr-board-dice{
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 6;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: transform .15s ease, opacity .2s ease;
+}
+#fgr-board-dice:hover{
+    transform: translate(-50%, -50%) scale(1.04);
+}
+#fgr-board-dice.locked{
+    pointer-events: none;
+    opacity: .85;
+}
+
+.fgr-cup-glass{
+    min-width: 70px;
+    height: 58px;
+    padding: 6px 8px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,.32);
+    background: linear-gradient(145deg, rgba(255,255,255,.18) 0%, rgba(255,255,255,.06) 100%);
+    backdrop-filter: blur(5px);
+    box-shadow:
+        inset 0 2px 8px rgba(255,255,255,.22),
+        inset 0 -6px 10px rgba(0,0,0,.18),
+        0 8px 14px rgba(0,0,0,.28);
+}
+.fgr-cup-dice-row{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+#fgr-board-dice .fgr-die{
+    position: relative;
+    left: auto;
+    top: auto;
+    transform: none;
+    transform-origin: center center;
+    backface-visibility: hidden;
+    will-change: transform;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,.34);
+    background: linear-gradient(145deg, #ffffff 0%, #e7edf6 100%);
+    box-shadow:
+        inset 0 1px 4px rgba(255,255,255,.9),
+        inset 0 -3px 6px rgba(0,0,0,.10),
+        0 3px 6px rgba(0,0,0,.25);
+    overflow: hidden;
+}
+
+#fgr-board-dice .fgr-die .fgr-pip{
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #1f2530;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.12);
+    opacity: 0;
+}
+
+/* 7个标准点位：中、左上、右上、左中、右中、左下、右下 */
+#fgr-board-dice .fgr-die .fgr-p1{ left: 50%; top: 50%; transform: translate(-50%, -50%); }
+#fgr-board-dice .fgr-die .fgr-p2{ left: 6px;  top: 6px; }
+#fgr-board-dice .fgr-die .fgr-p3{ right: 6px; top: 6px; }
+#fgr-board-dice .fgr-die .fgr-p4{ left: 6px;  top: 50%; transform: translateY(-50%); }
+#fgr-board-dice .fgr-die .fgr-p5{ right: 6px; top: 50%; transform: translateY(-50%); }
+#fgr-board-dice .fgr-die .fgr-p6{ left: 6px;  bottom: 6px; }
+#fgr-board-dice .fgr-die .fgr-p7{ right: 6px; bottom: 6px; }
+
+/* 面值控制 */
+#fgr-board-dice .fgr-die.face-1 .fgr-p1{ opacity: 1; }
+
+#fgr-board-dice .fgr-die.face-2 .fgr-p2,
+#fgr-board-dice .fgr-die.face-2 .fgr-p7{ opacity: 1; }
+
+#fgr-board-dice .fgr-die.face-3 .fgr-p2,
+#fgr-board-dice .fgr-die.face-3 .fgr-p1,
+#fgr-board-dice .fgr-die.face-3 .fgr-p7{ opacity: 1; }
+
+#fgr-board-dice .fgr-die.face-4 .fgr-p2,
+#fgr-board-dice .fgr-die.face-4 .fgr-p3,
+#fgr-board-dice .fgr-die.face-4 .fgr-p6,
+#fgr-board-dice .fgr-die.face-4 .fgr-p7{ opacity: 1; }
+
+#fgr-board-dice .fgr-die.face-5 .fgr-p2,
+#fgr-board-dice .fgr-die.face-5 .fgr-p3,
+#fgr-board-dice .fgr-die.face-5 .fgr-p1,
+#fgr-board-dice .fgr-die.face-5 .fgr-p6,
+#fgr-board-dice .fgr-die.face-5 .fgr-p7{ opacity: 1; }
+
+#fgr-board-dice .fgr-die.face-6 .fgr-p2,
+#fgr-board-dice .fgr-die.face-6 .fgr-p3,
+#fgr-board-dice .fgr-die.face-6 .fgr-p4,
+#fgr-board-dice .fgr-die.face-6 .fgr-p5,
+#fgr-board-dice .fgr-die.face-6 .fgr-p6,
+#fgr-board-dice .fgr-die.face-6 .fgr-p7{ opacity: 1; }
+
+/* 骰盅摇动 + 骰子翻转 */
+#fgr-board-dice.cup-rolling .fgr-cup-glass{
+    animation: fgrCupShake .28s ease-in-out infinite;
+}
+#fgr-board-dice .fgr-die.rolling{
+    animation: fgrCupDieJitter .16s ease-in-out infinite;
+}
+#fgr-board-dice.cup-settle .fgr-cup-glass{
+    animation: fgrCupSettle .26s ease-out;
+}
+
+@keyframes fgrCupShake{
+    0%   { transform: rotate(-3deg) translateY(0); }
+    25%  { transform: rotate(2deg) translateY(-1px); }
+    50%  { transform: rotate(-2deg) translateY(0); }
+    75%  { transform: rotate(3deg) translateY(-1px); }
+    100% { transform: rotate(-3deg) translateY(0); }
+}
+@keyframes fgrCupDieJitter{
+    0%   { transform: translate(0, 0) rotate(0deg) scale(1); }
+    25%  { transform: translate(-1px, -1px) rotate(-8deg) scale(1.03); }
+    50%  { transform: translate(1px, 1px) rotate(7deg) scale(1.05); }
+    75%  { transform: translate(-1px, 1px) rotate(-6deg) scale(1.02); }
+    100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+}
+@keyframes fgrCupSettle{
+    0%   { transform: translateY(-2px) scale(1.02); }
+    100% { transform: translateY(0) scale(1); }
+}
+
+.fgr-del-row:hover {
+    background: #d64949 !important;
+    color: #fff !important;
+}
+
+.fgr-map-legend{
+    margin-top: 8px;
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    opacity: .9;
+    padding: 8px;
+    background: rgba(0,0,0,.1);
+    border-radius: 6px;
+}
+.fgr-dot{
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+    transform: translateY(2px);
+    border: 1px solid rgba(0,0,0,.2);
+}
+.fgr-dot.start{ background: #4ea1ff; }
+.fgr-dot.end{ background: #41d67a; }
+.fgr-dot.event{ background: #f0b84b; }
+.fgr-dot.selected{ background: #ff6fa8; }
+.fgr-dot.piece{ background: #ffffff; }
+
+.fgr-piece-list{
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(0,0,0,.15);
+    font-size: 13px;
+    opacity: .95;
+    line-height: 1.6;
+}
+.fgr-map-tip{
+    opacity: .85;
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+#fgr-map-import-icon,
+#fgr-map-export-icon,
+#fgr-map-rename-icon,
+#fgr-map-delete-icon{
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 40px !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    border-radius: 8px !important;
+}
+
+#fgr-map-import-icon svg,
+#fgr-map-export-icon svg,
+#fgr-map-rename-icon svg,
+#fgr-map-delete-icon svg{
+    width: 22px;
+    height: 22px;
+    pointer-events: none;
+}
+#fgr-map-delete-icon:hover { background: #d64949 !important; }
+
+/* ===== 响应式设计 ===== */
+@media (max-width: 760px){
+    .fgr-map-library { grid-template-columns: 1fr; }
+
+    #fgr-control-modal{
+      padding-top: 8px;
+      padding-left: 6px;
+      padding-right: 6px;
+      padding-bottom: 8px;
+    }
+    #fgr-control-modal .fgr-card{
+      width: 100%;
+      max-height: calc(100vh - 12px);
+      border-radius: 10px;
+    }
+    .fgr-fixed-topbar{
+      padding: 6px;
+      gap: 6px;
+    }
+    .fgr-icon-btn{
+      width: 38px !important;
+      height: 38px !important;
+      min-width: 38px;
+    }
+    .fgr-icon-btn svg{
+      width: 20px;
+      height: 20px;
+    }
+    .fgr-body-scroll{
+      padding: 10px;
+    }
+    #fgr-control-modal th, #fgr-control-modal td{
+      padding: 6px;
+      font-size: 12px;
+    }
+    #fgr-map-import-icon,
+    #fgr-map-export-icon,
+    #fgr-map-rename-icon,
+    #fgr-map-delete-icon{
+      width: 38px !important;
+      min-width: 38px !important;
+      height: 38px !important;
+    }
+    #fgr-map-import-icon svg,
+    #fgr-map-export-icon svg,
+    #fgr-map-rename-icon svg,
+    #fgr-map-delete-icon svg{
+      width: 20px;
+      height: 20px;
+    }
+}
