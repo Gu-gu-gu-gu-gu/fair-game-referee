@@ -4,6 +4,37 @@
     const EXT_PATH = '/scripts/extensions/third-party/fair-game-referee';
     const LONG_PRESS_MS = 550;
 
+    let ludoCoreLoading = null;
+    let ludoUiLoading = null;
+
+    function loadLudoUI() {
+        if (ludoUiLoading) return ludoUiLoading;
+        ludoUiLoading = $.getScript(`${EXT_PATH}/games/ludo/ludo-ui.js`);
+        return ludoUiLoading;
+    }
+
+    async function ensureLudoUI() {
+        try {
+            await loadLudoUI();
+        } catch (e) {
+            console.error('[fair-game-referee] 加载飞行棋UI模块失败', e);
+        }
+    }
+
+    function loadLudoCore() {
+        if (ludoCoreLoading) return ludoCoreLoading;
+        ludoCoreLoading = $.getScript(`${EXT_PATH}/games/ludo/ludo-core.js`);
+        return ludoCoreLoading;
+    }
+
+    async function ensureLudoCore() {
+        try {
+            await loadLudoCore();
+        } catch (e) {
+            console.error('[fair-game-referee] 加载飞行棋模块失败', e);
+        }
+    }
+
     const defaultSettings = Object.freeze({
         enabled: true,
         longPressOpenEnabled: true,
@@ -17,32 +48,16 @@
         includeCharDefault: true,
         nameBlacklist: '旁白,系统,narrator,system,system note,gm,主持人',
 
-        roundTriggerWords: '下一轮,新一轮,next round',
+        roundTriggerWords: '下一回合,新一回合,next round',
         flightStartKeywords: '飞行棋,玩飞行棋,开始玩飞行棋',
         flightReplayKeywords: '重玩,再玩一次,重新开始',
 
-        diceStartKeywords: '骰子,玩骰子,大话骰',
-        // 骰子数量模式：auto=按玩家数自动切换，fixed=固定颗数
-        diceCountMode: 'auto', // auto | fixed
-        diceFixedCount: 1,     // fixed模式下：1或2
-        diceAutoSwitchPlayerCount: 6, // auto模式：玩家数 >= 这个值时用2d6
-        clickAnimationMs: 2200, // 点击“摇骰子”动画总时长(ms)
-        kingStartKeywords: '国王游戏,国王牌',
-        truthDareStartKeywords: '真心话大冒险',
-        rouletteStartKeywords: '俄罗斯转盘',
+        diceCountMode: 'auto',
+        diceFixedCount: 1,
+        diceAutoSwitchPlayerCount: 6,
+        clickAnimationMs: 2200,
 
-        fairnessMode: 'strict', // strict | director | display_only
-        reinjectPendingEachUserMessage: false,
-
-        // 外部判定LLM
-        classifierEnabled: false,
-        classifierProvider: 'none', // none | openai_compat | google_ai_studio
-        classifierApiKey: '',
-        openaiEndpoint: '',
-        openaiModel: '',
-        googleModel: '',
-        classifierEveryMsg: false,
-        classifierModelListJson: '[]',
+        fairnessMode: 'strict',
 
         flightMapJson: JSON.stringify({ winPosition: 20, events: [] }, null, 2),
         mapLibraryJson: '',
@@ -122,7 +137,7 @@
                 lastResult: null,
                 pendingPacket: null,
                 lastHandledUserFingerprint: '',
-                lastClassifier: null,
+                turnOrder: [],
                 historyStack: [],
                 futureStack: [],
             };
@@ -180,7 +195,7 @@
         ensureRoundHistoryState(state);
 
         if (!state.historyStack.length) {
-            return { ok: false, error: '没有可回退的上一轮' };
+            return { ok: false, error: '没有可回退的上一回合' };
         }
 
         state.futureStack.push(makeRoundSnapshot(state));
@@ -202,7 +217,7 @@
         ensureRoundHistoryState(state);
 
         if (!state.futureStack.length) {
-            return { ok: false, error: '没有可前进的下一轮' };
+            return { ok: false, error: '没有可前进的下一回合' };
         }
 
         state.historyStack.push(makeRoundSnapshot(state));
@@ -216,6 +231,82 @@
         await c.saveMetadata();
 
         return { ok: true, round: state.round, gameType: state.currentGame };
+    }
+
+    async function setRoundNumber(newRound, options = {}) {
+        const c = ctx();
+        const state = getChatState();
+
+        const nr = clampInt(newRound, 0, 9999, state.round || 0);
+        if (nr === state.round) {
+            return { ok: true, round: state.round, gameType: state.currentGame };
+        }
+
+        pushRoundHistorySnapshot(state);
+
+        state.round = nr;
+
+        if (state.pendingPacket) {
+            state.pendingPacket.round = nr;
+            if (options.clearOverride) {
+                state.pendingPacket.overrideText = null;
+            }
+        }
+
+        if (state.lastResult && typeof state.lastResult === 'object') {
+            state.lastResult.round = nr;
+        }
+
+        if (state.pendingPacket) {
+            const text = state.pendingPacket.overrideText || buildInjectionText(state.pendingPacket);
+            setRoundExtensionPrompt(text);
+        } else {
+            clearRoundExtensionPrompt();
+        }
+
+        await c.saveMetadata();
+        return { ok: true, round: state.round, gameType: state.currentGame };
+    }
+
+    async function setPlayerPositions(posMap = {}) {
+        const c = ctx();
+        const s = getSettings();
+        const state = getChatState();
+
+        await ensureLudoCore();
+
+        if (!posMap || typeof posMap !== 'object') {
+            return { ok: false, error: '位置数据无效' };
+        }
+
+        pushRoundHistorySnapshot(state);
+
+        if (!state.flight || typeof state.flight !== 'object') {
+            state.flight = { positions: {} };
+        }
+        if (!state.flight.positions || typeof state.flight.positions !== 'object') {
+            state.flight.positions = {};
+        }
+
+        const map = parseFlightMap(s);
+        const win = Math.max(1, Math.trunc(Number(map.winPosition) || 20));
+        const startCell = getMapStartCell(map);
+
+        for (const name in posMap) {
+            if (!Object.prototype.hasOwnProperty.call(posMap, name)) continue;
+            const raw = posMap[name];
+            const v = Math.trunc(Number(raw));
+            if (!Number.isFinite(v)) continue;
+
+            let fixed = v;
+            if (fixed < startCell) fixed = startCell;
+            if (fixed > win) fixed = win;
+
+            state.flight.positions[name] = fixed;
+        }
+
+        await c.saveMetadata();
+        return { ok: true };
     }
 
     function resolveDiceCount(settings, playerCount) {
@@ -259,12 +350,17 @@
     }
 
     function parseFlightMap(settings) {
+        const core = globalThis.FGR_LUDO_CORE;
+        if (core && typeof core.parseFlightMap === 'function') return core.parseFlightMap(settings);
+
         const checked = validateFlightMapJson(settings.flightMapJson);
         return checked.ok ? checked.map : { winPosition: 20, events: [] };
     }
 
-    // 地图起点自动判断：有 at=0 事件则起点0，否则起点1
     function getMapStartCell(map) {
+        const core = globalThis.FGR_LUDO_CORE;
+        if (core && typeof core.getMapStartCell === 'function') return core.getMapStartCell(map);
+
         const events = Array.isArray(map?.events) ? map.events : [];
         const hasZero = events.some(e => Math.trunc(Number(e?.at)) === 0);
         return hasZero ? 0 : 1;
@@ -364,11 +460,20 @@
         return Array.from(map.values());
     }
 
+    function samePlayers(a, b) {
+        if (!Array.isArray(a) || !Array.isArray(b)) return false;
+        if (a.length !== b.length) return false;
+        const sa = a.map(normalizeName).sort().join('|');
+        const sb = b.map(normalizeName).sort().join('|');
+        return sa === sb;
+    }
+
     function detectRoundTriggerLocal(text, settings, currentGame) {
         const t = String(text || '');
         const lower = t.toLowerCase();
 
-        const hasRoundWord = includesAny(lower, settings.roundTriggerWords);
+        const roundWords = String(settings.roundTriggerWords || '').trim() || defaultSettings.roundTriggerWords;
+        const hasRoundWord = includesAny(lower, roundWords);
         const isFlightStart = includesAny(lower, settings.flightStartKeywords);
         const isFlightReplay = includesAny(lower, settings.flightReplayKeywords);
 
@@ -380,19 +485,6 @@
                 reason: 'flight_start_local',
                 playersSuggested: [],
             };
-        }
-
-        if (includesAny(lower, settings.diceStartKeywords)) {
-            return { startNewRound: true, gameType: 'dice', resetMap: false, reason: 'dice_start_local', playersSuggested: [] };
-        }
-        if (includesAny(lower, settings.kingStartKeywords)) {
-            return { startNewRound: true, gameType: 'king', resetMap: false, reason: 'king_start_local', playersSuggested: [] };
-        }
-        if (includesAny(lower, settings.truthDareStartKeywords)) {
-            return { startNewRound: true, gameType: 'truth_dare', resetMap: false, reason: 'truth_dare_start_local', playersSuggested: [] };
-        }
-        if (includesAny(lower, settings.rouletteStartKeywords)) {
-            return { startNewRound: true, gameType: 'roulette', resetMap: false, reason: 'roulette_start_local', playersSuggested: [] };
         }
 
         if (hasRoundWord && currentGame) {
@@ -408,200 +500,63 @@
         return { startNewRound: false, gameType: currentGame || '', resetMap: false, reason: 'none_local', playersSuggested: [] };
     }
 
-    function pickLastMessages(chat, count = 8) {
-        const arr = Array.isArray(chat) ? chat : [];
-        const slice = arr.slice(-count);
-        return slice.map(m => ({
-            is_user: !!m?.is_user,
-            name: String(m?.name || ''),
-            mes: String(m?.mes || ''),
-        }));
-    }
-
-    function extractJsonObjectFromText(text) {
-        const raw = String(text || '').trim();
-        if (!raw) return null;
-        try { return JSON.parse(raw); } catch (_e) {}
-
-        const start = raw.indexOf('{');
-        const end = raw.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            const sub = raw.slice(start, end + 1);
-            try { return JSON.parse(sub); } catch (_e) {}
-        }
-        return null;
-    }
-
-    async function fetchJsonWithTimeout(url, options, timeoutMs = 12000) {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-        try {
-            const resp = await fetch(url, { ...options, signal: controller.signal });
-            const text = await resp.text();
-            let data = null;
-            try { data = JSON.parse(text); } catch (_e) {}
-            return { ok: resp.ok, status: resp.status, text, data };
-        } finally {
-            clearTimeout(timer);
-        }
-    }
-
-    async function callClassifierOpenAICompat(settings, payloadPrompt) {
-        const endpoint = String(settings.openaiEndpoint || '').trim();
-        const model = String(settings.openaiModel || '').trim();
-        const apiKey = String(settings.classifierApiKey || '').trim();
-
-        if (!endpoint || !model) throw new Error('OpenAI兼容判定缺少 endpoint 或 model');
-
-        const body = {
-            model,
-            temperature: 0,
-            messages: [
-                { role: 'system', content: '你是一个游戏回合判定器，只输出JSON。' },
-                { role: 'user', content: payloadPrompt },
-            ],
-        };
-
-        const result = await fetchJsonWithTimeout(endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-            },
-            body: JSON.stringify(body),
-        });
-
-        if (!result.ok) throw new Error(`OpenAI兼容判定失败 HTTP ${result.status}`);
-        const content = result?.data?.choices?.[0]?.message?.content ?? result.text;
-        return String(content || '');
-    }
-
-    async function callClassifierGoogleAIStudio(settings, payloadPrompt) {
-        const model = String(settings.googleModel || '').trim();
-        const apiKey = String(settings.classifierApiKey || '').trim();
-
-        if (!model || !apiKey) throw new Error('Google判定缺少 model 或 API key');
-
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-        const body = {
-            contents: [{ role: 'user', parts: [{ text: payloadPrompt }] }],
-            generationConfig: { temperature: 0, responseMimeType: 'application/json' },
-        };
-
-        const result = await fetchJsonWithTimeout(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        });
-
-        if (!result.ok) throw new Error(`Google判定失败 HTTP ${result.status}`);
-        const content = result?.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? result.text;
-        return String(content || '');
-    }
-
-    async function classifyRoundByExternalLLM(userText, state, settings, chat) {
-        if (!settings.classifierEnabled) return null;
-        if (!settings.classifierProvider || settings.classifierProvider === 'none') return null;
-
-        const currentGame = String(state.currentGame || '');
-        const recent = pickLastMessages(chat, 8);
-
-        const prompt = [
-            '请根据下面对话判断是否应触发“游戏新一轮裁定”。',
-            '仅输出JSON，不要解释，不要markdown，不要多余文本。',
-            '',
-            '输出格式：',
-            '{',
-            '  "shouldStartRound": boolean,',
-            '  "gameType": "flight|dice|king|truth_dare|roulette|none",',
-            '  "isReplay": boolean,',
-            '  "players": ["name1","name2"],',
-            '  "reason": "short reason"',
-            '}',
-            '',
-            '判定规则：',
-            '1) 只有用户明确表达开始某游戏/下一轮时 shouldStartRound=true。',
-            '2) 如果只是普通叙事或继续本轮剧情，shouldStartRound=false。',
-            `3) 当前已知游戏类型 currentGame="${currentGame || 'none'}"。`,
-            '4) players 可根据最近消息的人名推测，不确定可返回空数组。',
-            '',
-            '最近消息(JSON)：',
-            JSON.stringify(recent),
-            '',
-            '当前用户新消息：',
-            userText,
-        ].join('\n');
-
-        let raw = '';
-        if (settings.classifierProvider === 'openai_compat') raw = await callClassifierOpenAICompat(settings, prompt);
-        else if (settings.classifierProvider === 'google_ai_studio') raw = await callClassifierGoogleAIStudio(settings, prompt);
-        else return null;
-
-        const parsed = extractJsonObjectFromText(raw);
-        if (!parsed || typeof parsed !== 'object') throw new Error('外部判定未返回可解析JSON');
-
-        return {
-            shouldStartRound: !!parsed.shouldStartRound,
-            gameType: normalizeGameType(parsed.gameType),
-            isReplay: !!parsed.isReplay,
-            players: Array.isArray(parsed.players) ? parsed.players.map(x => String(x || '').trim()).filter(Boolean) : [],
-            reason: String(parsed.reason || ''),
-            raw,
-        };
-    }
-
-    function mergeDecision(localDecision, llmDecision, currentGame) {
-        const finalDecision = {
-            startNewRound: !!localDecision.startNewRound,
-            gameType: localDecision.gameType || '',
-            resetMap: !!localDecision.resetMap,
-            reason: localDecision.reason || 'local',
-            playersSuggested: Array.isArray(localDecision.playersSuggested) ? localDecision.playersSuggested : [],
-        };
-
-        if (!llmDecision) return finalDecision;
-
-        if (!finalDecision.startNewRound && llmDecision.shouldStartRound) {
-            finalDecision.startNewRound = true;
-            finalDecision.gameType = llmDecision.gameType || currentGame || '';
-            finalDecision.resetMap = !!(llmDecision.isReplay && (llmDecision.gameType || currentGame) === 'flight');
-            finalDecision.reason = `llm:${llmDecision.reason || 'start_round'}`;
-        }
-
-        if (finalDecision.startNewRound && !finalDecision.gameType && llmDecision.gameType) {
-            finalDecision.gameType = llmDecision.gameType;
-        }
-
-        if (Array.isArray(llmDecision.players) && llmDecision.players.length) {
-            finalDecision.playersSuggested = llmDecision.players.slice(0, 20);
-        }
-
-        return finalDecision;
-    }
-
     function runRound(gameType, players, state, settings) {
-    if (gameType === 'dice') {
-        const diceCount = resolveDiceCount(settings, players.length);
-        const mode = normalizeDiceMode(settings.diceCountMode);
+        if (gameType === 'dice') {
+            const diceCount = resolveDiceCount(settings, players.length);
+            const mode = normalizeDiceMode(settings.diceCountMode);
 
-        const rows = players.map(p => {
-            const dice = Array.from({ length: diceCount }, () => roll(1, 6));
-            const total = dice.reduce((a, b) => a + b, 0);
+            const rows = players.map(p => {
+                const dice = Array.from({ length: diceCount }, () => roll(1, 6));
+                const total = dice.reduce((a, b) => a + b, 0);
+
+                return {
+                    player: p,
+                    value: diceCount === 1 ? String(dice[0]) : `${dice.join('+')}=${total}`,
+                    total,
+                    dice,
+                };
+            });
+
+            const max = Math.max(...rows.map(r => r.total));
+            const winners = rows.filter(r => r.total === max).map(r => r.player);
 
             return {
-                player: p,
-                value: diceCount === 1 ? String(dice[0]) : `${dice.join('+')}=${total}`,
-                total,
-                dice,
+                rows: rows.map(r => ({ player: r.player, value: r.value })),
+                summary: `模式=${mode}；骰子=${diceCount}d6；最高点 ${max}，胜者：${winners.join(' / ')}`,
+                cellTexts: [],
+                turnOrder: [],
+                collisionTexts: [],
+                collisionMarks: [],
+                winners: [],
             };
-        });
+        }
 
-        const max = Math.max(...rows.map(r => r.total));
-        const winners = rows.filter(r => r.total === max).map(r => r.player);
+        if (gameType === 'flight') {
+            const core = globalThis.FGR_LUDO_CORE;
+            if (!core || typeof core.runFlightRound !== 'function') {
+                return {
+                    rows: [],
+                    summary: '飞行棋模块未加载',
+                    cellTexts: [],
+                    turnOrder: [],
+                    collisionTexts: [],
+                    collisionMarks: [],
+                    winners: [],
+                };
+            }
+            return core.runFlightRound({
+                players,
+                state,
+                settings,
+                resolveDiceCount,
+                samePlayers,
+                roll,
+            });
+        }
 
         return {
-            rows: rows.map(r => ({ player: r.player, value: r.value })),
-            summary: `模式=${mode}；骰子=${diceCount}d6；最高点 ${max}，胜者：${winners.join(' / ')}`,
+            rows: [],
+            summary: '当前示例仅实现：骰子 / 飞行棋。',
             cellTexts: [],
             turnOrder: [],
             collisionTexts: [],
@@ -610,188 +565,139 @@
         };
     }
 
-    if (gameType === 'flight') {
+    function buildFlightDetailLinesFromTurns(turns = []) {
+        return turns.map(t => {
+            const dice = Array.isArray(t.dice) ? t.dice : [];
+            const total = Number.isFinite(Number(t.total)) ? Number(t.total) : dice.reduce((a, b) => a + b, 0);
+            const diceText = dice.length
+                ? (dice.length === 1 ? String(dice[0]) : `${dice.join('+')}=${total}`)
+                : '';
+            const eventText = String(t.eventText || t.finalCellText || '').trim();
+            const orderText = Number.isFinite(Number(t.order)) ? `顺位${t.order}，` : '';
+            const rollText = diceText ? `掷出${diceText}，` : '';
+            const finalPos = Number.isFinite(Number(t.finalPos)) ? Math.trunc(Number(t.finalPos)) : '';
+            const eventPart = eventText ? `，事件:${eventText}` : '';
+            return `${t.player}: ${orderText}${rollText}落点${finalPos}${eventPart}`.trim();
+        });
+    }
+
+    function buildDetailLines(gameType, result) {
+        if (gameType === 'flight' && Array.isArray(result?.turns)) {
+            return buildFlightDetailLinesFromTurns(result.turns);
+        }
+        if (Array.isArray(result?.rows)) {
+            return result.rows.map(r => `${r.player}:${r.value}`);
+        }
+        return [];
+    }
+
+    function getEventTextByPos(map, pos) {
+        const events = Array.isArray(map?.events) ? map.events : [];
+        const p = Math.trunc(Number(pos));
+        const hit = events.find(e => Math.trunc(Number(e?.at)) === p);
+        return String(hit?.text || '').trim();
+    }
+
+    function rebuildFlightPacketByPositions(state, settings, players) {
         const map = parseFlightMap(settings);
         const win = Math.max(1, Math.trunc(Number(map.winPosition) || 20));
         const startCell = getMapStartCell(map);
-        state.flight = state.flight || { positions: {} };
+        const diceCount = resolveDiceCount(settings, players.length);
 
-        const eventMap = new Map((Array.isArray(map.events) ? map.events : []).map(e => [Math.trunc(Number(e.at)), e]));
+        const order = Array.isArray(state.pendingPacket?.turnOrder) && state.pendingPacket.turnOrder.length
+            ? state.pendingPacket.turnOrder
+            : (Array.isArray(state.turnOrder) && state.turnOrder.length ? state.turnOrder : players);
 
-        for (const p of players) {
-            const raw = Number(state.flight.positions[p]);
-            state.flight.positions[p] = Number.isFinite(raw) ? Math.trunc(raw) : startCell;
-
-            if (state.flight.positions[p] < startCell) state.flight.positions[p] = startCell;
-            if (state.flight.positions[p] > win) state.flight.positions[p] = win;
-        }
-
-        const turnOrder = players.slice();
-        for (let i = turnOrder.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [turnOrder[i], turnOrder[j]] = [turnOrder[j], turnOrder[i]];
-        }
-
-        const moveWithBounce = (from, delta) => {
-            let pos = Math.trunc(Number(from) || 0) + Math.trunc(Number(delta) || 0);
-            if (pos > win) {
-                const overflow = pos - win;
-                pos = win - overflow;
-            }
-            if (pos < startCell) pos = startCell;
-            if (pos > win) pos = win;
-            return pos;
-        };
-
-        const flightDiceCount = resolveDiceCount(settings, players.length);
-        const rows = [];
-        const cellTexts = [];
-        const rolls = {};
-        const collisionTexts = [];
-        const collisionMarks = [];
-        const winners = [];
-        const actedPlayers = new Set();
-
-        for (let idx = 0; idx < turnOrder.length; idx++) {
-            const actor = turnOrder[idx];
-            const startPos = Math.trunc(Number(state.flight.positions[actor] ?? startCell));
-            const dice = Array.from({ length: flightDiceCount }, () => roll(1, 6));
-            const d = dice.reduce((a, b) => a + b, 0);
-            rolls[actor] = {
-                dice,
-                total: d,
-                diceCount: flightDiceCount,
+        const baseTurns = Array.isArray(state?.lastResult?.result?.turns) ? state.lastResult.result.turns : [];
+        const turns = order.map((name, idx) => {
+            const base = baseTurns.find(t => t.player === name) || {};
+            const pos = Math.trunc(Number(state.flight?.positions?.[name] ?? startCell));
+            const eventText = getEventTextByPos(map, pos);
+            return {
+                player: name,
+                order: idx + 1,
+                dice: Array.isArray(base.dice) ? base.dice : [],
+                total: Number.isFinite(Number(base.total)) ? Number(base.total) : 0,
+                landedByDice: base.landedByDice,
+                eventMove: base.eventMove,
+                eventText: eventText,
+                finalPos: pos,
+                finalCellText: eventText,
             };
+        });
 
-            const landedByDice = moveWithBounce(startPos, d);
-            const diceText = flightDiceCount === 1 ? String(dice[0]) : `${dice.join('+')}=${d}`;
-            const pieces = [`顺位${idx + 1}`, `掷出${diceText}`, `起点${startPos}->掷骰落点${landedByDice}`];
+        const detailLines = buildFlightDetailLinesFromTurns(turns);
+        const detail = detailLines.join('；');
 
-            const sendVictimToStartAndResolve = (victim, byActor, hitPos, phaseLabel, phaseKey, victimHadActed) => {
-                const victimBeforePos = Math.trunc(Number(state.flight.positions[victim] ?? startCell));
+        const winners = turns.filter(t => t.finalPos === win).map(t => t.player);
+        const summary = `终点${win}；起点${startCell}；骰子=${diceCount}d6；到达终点：${winners.length ? winners.join(' / ') : '暂无'}`;
 
-                let victimPos = startCell;
-                const startHit = eventMap.get(startCell);
+        const cellTexts = turns
+            .map(t => {
+                const text = String(t.eventText || '').trim();
+                if (!text) return '';
+                return `${t.player}@格${t.finalPos}:${text}`;
+            })
+            .filter(Boolean);
 
-                let victimEventMove = 0;
-                let victimEventText = '';
-
-                if (startHit) {
-                    victimEventMove = Math.trunc(Number(startHit.move || 0));
-                    victimEventText = String(startHit.text || '').trim();
-                    victimPos = moveWithBounce(startCell, victimEventMove);
-                }
-
-                state.flight.positions[victim] = victimPos;
-                if (victimPos === win) winners.push(victim);
-
-                const actedTag = victimHadActed
-                    ? '（该玩家本轮已行动，已完成任务不撤销）'
-                    : '（该玩家本轮未行动）';
-
-                collisionTexts.push(
-                    `${byActor} 在${hitPos}格${phaseLabel}撞到 ${victim}，被撞前位置${victimBeforePos}${actedTag}；被撞者回起点${startCell}并结算起点事件后到${victimPos}`
-                );
-
-                collisionMarks.push({
-                    pos: hitPos,
-                    phase: phaseKey, // pre | post
-                    actor: byActor,
-                    victim,
-                    victimBeforePos,
-                    victimHadActed,
-                });
-
-                if (startHit) {
-                    if (victimEventText) {
-                        cellTexts.push(`${victim}@被撞回起点触发格${startCell}:${victimEventText}`);
-                    }
-                    cellTexts.push(
-                        `${victim}@被撞回起点最终落点${victimPos}:move${victimEventMove >= 0 ? '+' : ''}${victimEventMove}`
-                    );
-                } else {
-                    cellTexts.push(`${victim}@被撞回起点${startCell}:无起点事件`);
-                }
-            };
-
-            const preVictims = players.filter(
-                p => p !== actor && Math.trunc(Number(state.flight.positions[p])) === landedByDice
-            );
-            if (preVictims.length) {
-                for (const v of preVictims) {
-                    sendVictimToStartAndResolve(v, actor, landedByDice, '（掷骰落点阶段）', 'pre', actedPlayers.has(v));
-                }
-                pieces.push(`相撞前置: ${preVictims.join('、')}回起点并结算起点事件`);
-            }
-
-            let finalPos = landedByDice;
-            const hit = eventMap.get(landedByDice);
-            let eventMove = 0;
-            let eventText = '';
-
-            if (hit) {
-                eventMove = Math.trunc(Number(hit.move || 0));
-                eventText = String(hit.text || '').trim();
-                finalPos = moveWithBounce(landedByDice, eventMove);
-
-                pieces.push(`触发格${landedByDice}`);
-                pieces.push(`事件位移${eventMove >= 0 ? '+' : ''}${eventMove}`);
-                if (eventText) {
-                    pieces.push(`触发事件:${eventText}`);
-                    cellTexts.push(`${actor}@触发格${landedByDice}:${eventText}`);
-                }
-            }
-
-            const postVictims = players.filter(
-                p => p !== actor && Math.trunc(Number(state.flight.positions[p])) === finalPos
-            );
-            if (postVictims.length) {
-                for (const v of postVictims) {
-                    sendVictimToStartAndResolve(v, actor, finalPos, '（事件后落点阶段）', 'post', actedPlayers.has(v));
-                }
-                pieces.push(`相撞后置: ${postVictims.join('、')}回起点并结算起点事件`);
-            }
-
-            state.flight.positions[actor] = finalPos;
-            if (finalPos === win) winners.push(actor);
-
-            pieces.push(`最终落点${finalPos}`);
-
-            const finalCell = eventMap.get(finalPos);
-            const finalCellText = String(finalCell?.text || '').trim();
-            if (finalCellText) {
-                pieces.push(`落点文本:${finalCellText}`);
-                cellTexts.push(`${actor}@落点格${finalPos}:${finalCellText}`);
-            }
-
-            rows.push({ player: actor, value: pieces.join('，') });
-            actedPlayers.add(actor);
-        }
-
-        const uniqueWinners = Array.from(new Set(winners));
-        const summary = `终点${win}；起点${startCell}；骰子=${flightDiceCount}d6；到达终点：${uniqueWinners.length ? uniqueWinners.join(' / ') : '暂无'}`;
         return {
-            rows,
+            packetId: state.pendingPacket?.packetId || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            gameType: 'flight',
+            round: state.round,
+            players: players,
+            detail,
+            detailLines,
             summary,
             cellTexts,
-            turnOrder,
-            collisionTexts,
-            collisionMarks,
-            winners: uniqueWinners,
-            rolls,
+            turnOrder: order,
+            collisionTexts: Array.isArray(state.pendingPacket?.collisionTexts) ? state.pendingPacket.collisionTexts : [],
+            winners,
+            turns,
+            createdAt: state.pendingPacket?.createdAt || Date.now(),
         };
     }
 
-    return {
-        rows: [],
-        summary: '当前示例仅实现：骰子 / 飞行棋。',
-        cellTexts: [],
-        turnOrder: [],
-        collisionTexts: [],
-        collisionMarks: [],
-        winners: [],
-    };
-}
+    async function applyDirectorEdits(posMap = {}) {
+        const c = ctx();
+        const s = getSettings();
+        const state = getChatState();
+        await ensureLudoCore();
+
+        if (!state.pendingPacket || state.pendingPacket.gameType !== 'flight') {
+            return { ok: false, error: '当前没有可编辑的飞行棋回合包' };
+        }
+
+        const players = Array.isArray(state.pendingPacket.players) ? state.pendingPacket.players : [];
+        if (!state.flight || typeof state.flight !== 'object') state.flight = { positions: {} };
+        if (!state.flight.positions || typeof state.flight.positions !== 'object') state.flight.positions = {};
+
+        const map = parseFlightMap(s);
+        const win = Math.max(1, Math.trunc(Number(map.winPosition) || 20));
+        const startCell = getMapStartCell(map);
+
+        for (const name in posMap) {
+            if (!Object.prototype.hasOwnProperty.call(posMap, name)) continue;
+            const v = Math.trunc(Number(posMap[name]));
+            if (!Number.isFinite(v)) continue;
+            let fixed = v;
+            if (fixed < startCell) fixed = startCell;
+            if (fixed > win) fixed = win;
+            state.flight.positions[name] = fixed;
+        }
+
+        const packet = rebuildFlightPacketByPositions(state, s, players);
+
+        state.pendingPacket = packet;
+        if (state.lastResult && state.lastResult.result) {
+            state.lastResult.result.turns = packet.turns;
+        }
+
+        const text = buildInjectionText(packet);
+        setRoundExtensionPrompt(text);
+
+        await c.saveMetadata();
+        return { ok: true, packet };
+    }
 
     function isFgrPacketSystemNote(m) {
         return !!(
@@ -827,49 +733,70 @@
     }
 
     function buildInjectionText(packet) {
+        const uniqLines = (arr = []) => {
+            const set = new Set();
+            const out = [];
+            for (const x of arr) {
+                const t = String(x || '').trim();
+                if (!t || set.has(t)) continue;
+                set.add(t);
+                out.push(t);
+            }
+            return out;
+        };
+
+        const takeLimit = (list = [], limit = 6) => {
+            const lim = Math.max(1, limit);
+            if (list.length <= lim) return list;
+            return list.slice(0, lim).concat(`…其余${list.length - lim}条省略`);
+        };
+
         const orderLine = (packet.turnOrder && packet.turnOrder.length)
-            ? `顺序=${packet.turnOrder.join(' -> ')}。`
-            : '顺序=无。';
-
-        const collisionLine = (packet.collisionTexts && packet.collisionTexts.length)
-            ? `相撞=${packet.collisionTexts.join('；')}。`
-            : '相撞=无。';
-
-        const cellTextLine = (packet.cellTexts && packet.cellTexts.length)
-            ? `格子文本=${packet.cellTexts.join('；')}。`
-            : '格子文本=无。';
+            ? `顺序=${packet.turnOrder.join(' -> ')}`
+            : '顺序=无';
 
         const winnerLine = (packet.winners && packet.winners.length)
-            ? `到达终点=${packet.winners.join(' / ')}。`
-            : '到达终点=暂无。';
+            ? `到达终点=${packet.winners.join(' / ')}`
+            : '到达终点=暂无';
+
+        const collisionLines = takeLimit(uniqLines(packet.collisionTexts || []), 6);
+        const cellLines = takeLimit(uniqLines(packet.cellTexts || []), 8);
+
+        const detailText = Array.isArray(packet.detailLines) && packet.detailLines.length
+            ? packet.detailLines.join('；')
+            : String(packet.detail || '');
 
         return [
-            `【公平裁定-回合包】`,
-            `游戏=${packet.gameType}；回合=${packet.round}；玩家=${packet.players.join('、')}；`,
-            `结果=${packet.detail}；结论=${packet.summary}。`,
-            `${orderLine}`,
-            `${collisionLine}`,
-            `${cellTextLine}`,
-            `${winnerLine}`,
+            `【公平裁定-回合包】【${packet.gameType}】第${packet.round}回合`,
+            `玩家=${packet.players.join('、')}`,
+            orderLine,
+            `掷骰提要=${detailText}`,
+            `结论=${packet.summary}`,
+            collisionLines.length ? `相撞=${collisionLines.join('；')}` : '相撞=无',
+            cellLines.length ? `格子事件=${cellLines.join('；')}` : '格子事件=无',
+            winnerLine,
 
             `【强约束】你必须严格按上述结果叙事，不得改判胜负。`,
             `【持续进行】在有人到达终点之前，游戏持续进行；不得私自判定“突然结束/强制收尾”。`,
 
-            `【回合定义】“一轮”=本轮内所有玩家都已完成一次掷骰/行动，并完成各自落点格子任务。`,
-            `【下一轮定义】“下一轮/新一轮/next round”=所有玩家在上一整轮完成后，再按顺序各进行一次新的掷骰/行动与任务，不是回到起点重开。`,
-            `【禁止误判重开】除非用户明确说“重玩/重开/重新开始”，否则不得把“下一轮”解释为“回到起点重头开始”。`,
+            `【局与回合定义】“一回合/一盘/一局”=从起点到终点的整盘；“一回合”=所有玩家各完成一次掷骰与任务。`,
+            `【下一回合定义】“下一回合/新回合/next round/下一回合”=所有玩家在上一回合完成后，再按顺序各进行一次新的掷骰与任务，不是回到起点重开。`,
+            `【禁止误判重开】除非用户明确说“重玩/重开/重新开始”，否则不得把“下一回合/下一回合”解释为“回到起点重头开始”。`,
 
             `【任务归属】每个格子任务只属于该玩家本人完成，禁止他人代做、替做、转包。`,
             `【禁止钻空子】禁止用“口头宣布完成/场外操作/规则外技巧/偷换概念”跳过或规避格子任务。`,
             `【禁止免做】除非裁定结果明确写出“免任务/跳过任务”，否则任何玩家都必须完成其落点任务。`,
             `【禁止改派】不得把A玩家任务改派给B玩家；不得把多人任务压缩为单人代办。`,
 
-            `【任务推进约束】请先简短回顾本轮中“已完成格子任务”的玩家进度，再重点补完“尚未完成格子任务”的玩家剧情。`,
-            `【禁止跳轮】在本轮所有玩家任务都完成之前，严禁发起、描写或暗示下一轮掷骰/抽牌。`,
-            `【禁止自动开新轮】除非有人明确发出“下一轮/新一轮/next round”等指令，否则不得进入第${packet.round + 1}轮。`,
-            `如果本轮剧情尚未写完，请继续完成第${packet.round}轮内容，不得偷跑到下一轮。`,
-            `【自然收束】结尾可以自然收束：大家自行聊天/收拾/暂歇等都可以；不要集体等待或看向 user 来决定是否继续，也不要重复性地每轮都提喝酒/休息或询问是否开下一轮。`
-        ].join('');
+            `【任务推进约束】先简短回顾已完成任务，再重点补完尚未完成的玩家剧情。`,
+            `【分批完成】每次回复只推进1~4名玩家的任务，不要一次写完所有玩家的任务；未完成者请在结尾列出“待处理玩家清单”。`,
+            `【需要暂停】当本回合仍有人未完成任务时，回复末尾必须停在“等待继续/确认下一步”的状态。`,
+            `【用户结尾引导】如果轮到 user 的任务，请在结尾向 user 提出明确选择（如对象/顺序/方式），并停在 user 决定处，不要替 user 直接决定。`,
+            `【禁止跳回合】在本回合所有玩家任务都完成之前，严禁发起、描写或暗示下一回合掷骰/抽牌。`,
+            `【禁止自动开新回合】除非有人明确发出“下一回合/新回合/next round/下一回合”等指令，否则不得进入第${packet.round + 1}回合。`,
+            `如果本回合剧情尚未写完，请继续完成第${packet.round}回合内容，不得偷跑到下一回合。`,
+            `【自然收束】结尾可以自然收束：大家各自交流/休息/碰杯/喝水等都可以，不需要集体等待或看向 user 来决定是否继续；只要不自行开启下一回合即可。`,
+        ].join('\n');
     }
 
     function getLastUserMessage(chat) {
@@ -890,17 +817,17 @@
         let injectText = buildInjectionText(packet);
 
         if (settings.fairnessMode === 'director') {
-            const edited = window.prompt('导演模式：可编辑裁定文本', injectText);
-            if (typeof edited === 'string' && edited.trim()) injectText = edited.trim();
+            if (globalThis.FGR_UI?.openDirectorOnlyModal) {
+                globalThis.FGR_UI.openDirectorOnlyModal();
+            } else if (globalThis.FGR_UI?.open) {
+                globalThis.FGR_UI.open('map');
+            }
+            toastr.info('[裁定器] 已打开导演编辑独立面板，请调整落点并应用');
         }
 
-        if (settings.fairnessMode !== 'display_only') {
-            setRoundExtensionPrompt(injectText);
-        } else {
-            clearRoundExtensionPrompt();
-        }
-
-        return injectText;
+        const finalText = packet.overrideText || injectText;
+        setRoundExtensionPrompt(finalText);
+        return finalText;
     }
 
     globalThis.fairGameRefereeInterceptor = async function(chat, contextSize, abort, type) {
@@ -929,29 +856,11 @@
             return;
         }
 
-        const localDecision = detectRoundTriggerLocal(text, s, state.currentGame);
-
-        let llmDecision = null;
-        const shouldCallClassifier = !!(
-            s.classifierEnabled &&
-            s.classifierProvider !== 'none' &&
-            (s.classifierEveryMsg || !localDecision.startNewRound)
-        );
-
-        if (shouldCallClassifier) {
-            try {
-                llmDecision = await classifyRoundByExternalLLM(text, state, s, chat);
-                state.lastClassifier = {
-                    at: Date.now(),
-                    provider: s.classifierProvider,
-                    output: llmDecision,
-                };
-            } catch (err) {
-                console.warn('[fair-game-referee] 外部判定失败：', err);
-            }
+        const currentGame = state.currentGame || state.pendingPacket?.gameType || '';
+        if (!state.currentGame && currentGame) {
+            state.currentGame = currentGame;
         }
-
-        const decision = mergeDecision(localDecision, llmDecision, state.currentGame);
+        const decision = detectRoundTriggerLocal(text, s, currentGame);
 
         if (!decision.startNewRound) {
             state.lastHandledUserFingerprint = fp;
@@ -976,22 +885,29 @@
 
         pushRoundHistorySnapshot(state);
 
+        if (decision.gameType === 'flight') {
+            await ensureLudoCore();
+        }
+
         if (decision.gameType !== state.currentGame) {
             state.currentGame = decision.gameType;
             state.round = 0;
+            state.turnOrder = [];
             if (decision.gameType === 'flight') state.flight = { positions: {} };
         }
 
         if (decision.gameType === 'flight' && decision.resetMap) {
             state.flight = { positions: {} };
             state.round = 0;
+            state.turnOrder = [];
             state.pendingPacket = null;
             clearRoundExtensionPrompt();
         }
 
         state.round += 1;
         const result = runRound(state.currentGame, players, state, s);
-        const detail = result.rows.map(r => `${r.player}:${r.value}`).join('；');
+        const detailLines = buildDetailLines(state.currentGame, result);
+        const detail = detailLines.join('；');
 
         const packet = {
             packetId: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -999,11 +915,13 @@
             round: state.round,
             players,
             detail,
+            detailLines,
             summary: result.summary,
             cellTexts: result.cellTexts || [],
             turnOrder: result.turnOrder || [],
             collisionTexts: result.collisionTexts || [],
             winners: result.winners || [],
+            turns: result.turns || [],
             createdAt: Date.now(),
         };
 
@@ -1016,7 +934,7 @@
         state.lastHandledUserFingerprint = fp;
 
         await c.saveMetadata();
-        toastr.success(`[公平裁定] ${state.currentGame} 第${state.round}轮已裁定`);
+        toastr.success(`[公平裁定] ${state.currentGame} 第${state.round}回合已裁定`);
     };
 
     function bindLongPressOnExtensionsButton() {
@@ -1084,6 +1002,12 @@
         if (uiMounted) return;
         const html = await $.get(`${EXT_PATH}/settings.html`);
         $('#extensions_settings').append(html);
+
+        // ✅ 默认折叠
+        const $drawer = $('#fair-game-referee-settings');
+        $drawer.removeClass('open');
+        $drawer.find('.inline-drawer-content').hide();
+
         bindDrawerUI();
         uiMounted = true;
     }
@@ -1105,6 +1029,7 @@
         const c = ctx();
         const s = getSettings();
         const state = getChatState();
+        await ensureLudoCore();
         const resetMap = !!options.resetMap;
 
         if (!s.enabled) return { ok: false, error: '插件未启用' };
@@ -1121,6 +1046,7 @@
 
         if (resetMap) {
             state.round = 0;
+            state.turnOrder = [];
             state.flight = { positions: {} };
             state.pendingPacket = null;
             clearRoundExtensionPrompt();
@@ -1133,18 +1059,21 @@
         const result = runRound('flight', players, state, s);
         const afterPositions = clonePlain(state.flight.positions);
 
-        const detail = result.rows.map(r => `${r.player}:${r.value}`).join('；');
+        const detailLines = buildDetailLines('flight', result);
+        const detail = detailLines.join('；');
         const packet = {
             packetId: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             gameType: 'flight',
             round: state.round,
             players,
             detail,
+            detailLines,
             summary: result.summary,
             cellTexts: result.cellTexts || [],
             turnOrder: result.turnOrder || [],
             collisionTexts: result.collisionTexts || [],
             winners: result.winners || [],
+            turns: result.turns || [],
             createdAt: Date.now(),
         };
 
@@ -1186,6 +1115,8 @@
                 turnOrder: result.turnOrder || players,
                 userDice: Array.isArray(userDice) && userDice.length ? userDice : [1],
                 collisionVictims,
+                turns: Array.isArray(result.turns) ? result.turns : [],
+                collisionMarks: Array.isArray(result.collisionMarks) ? result.collisionMarks : [],
             },
         };
     }
@@ -1194,11 +1125,16 @@
     globalThis.FGR_ACTIONS.rollFlightByClick = rollFlightByClick;
     globalThis.FGR_ACTIONS.undoRound = undoRound;
     globalThis.FGR_ACTIONS.redoRound = redoRound;
+    globalThis.FGR_ACTIONS.setRoundNumber = setRoundNumber;
+    globalThis.FGR_ACTIONS.setPlayerPositions = setPlayerPositions;
+    globalThis.FGR_ACTIONS.applyDirectorEdits = applyDirectorEdits;
 
     const c = ctx();
     c.eventSource.on(c.event_types.APP_READY, async () => {
         try {
             getSettings();
+            await ensureLudoCore();
+            await ensureLudoUI();
             await loadUiScript();
             globalThis.FGR_UI?.init({
                 getSettings,
@@ -1210,7 +1146,8 @@
             const syncRoundPromptFromState = () => {
                 const st = getChatState();
                 if (st?.pendingPacket) {
-                    setRoundExtensionPrompt(buildInjectionText(st.pendingPacket));
+                    const text = st.pendingPacket.overrideText || buildInjectionText(st.pendingPacket);
+                    setRoundExtensionPrompt(text);
                 } else {
                     clearRoundExtensionPrompt();
                 }
