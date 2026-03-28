@@ -3,6 +3,19 @@
     const CHARACTER_PROFILE_KEY = `${MODULE_NAME}_character_profile`;
     const EXT_PATH = "/scripts/extensions/third-party/fair-game-referee";
     const LONG_PRESS_MS = 550;
+    const INLINE_ACTIONS_ENABLED = true;
+    const INLINE_ACTION_WRAP_CLASS = 'fgr-inline-actions-wrap';
+    const INLINE_ACTION_BTN_CLASS = 'fgr-inline-action-btn';
+    const INLINE_NEXT_ROUND_BUTTON_CLASS = 'fgr-inline-next-round';
+    const INLINE_START_FLIGHT_BUTTON_CLASS = 'fgr-inline-start-flight';
+    const INLINE_START_KING_BUTTON_CLASS = 'fgr-inline-start-king';
+    const QR_BOOTSTRAP_ENABLED = false;
+    const QR_PRESET_NAME = 'FairGameRefereeAuto';
+    const QR_LABEL_NEXT_ROUND = '下一回合';
+    const QR_TITLE_NEXT_ROUND = '公平游戏裁判：推进一回合';
+    const QR_TEXT_NEXT_ROUND = '下一回合';
+    const QR_FALLBACK_WRAP_ID = 'fgr-qr-fallback-wrap';
+    const QR_FALLBACK_BUTTON_ID = 'fgr-qr-fallback-next-round';
 
     let ludoCoreLoading = null;
     let ludoUiLoading = null;
@@ -118,6 +131,634 @@
 
     function ctx() {
         return SillyTavern.getContext();
+    }
+
+    function getSendTextarea() {
+        return document.querySelector(
+            '#send_textarea, #send_textarea_compact, textarea#send_textarea, textarea[id*="send_textarea"], #chat-input textarea'
+        );
+    }
+
+    function setNativeInputValue(el, value) {
+        const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+        if (setter) setter.call(el, value);
+        else el.value = value;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function notifyInline(message, level = 'info') {
+        if (typeof toastr !== 'undefined' && toastr) {
+            if (level === 'success' && typeof toastr.success === 'function') toastr.success(message);
+            else if (level === 'error' && typeof toastr.error === 'function') toastr.error(message);
+            else if (typeof toastr.info === 'function') toastr.info(message);
+            else console.log('[fair-game-referee]', message);
+            return;
+        }
+        console.log('[fair-game-referee]', message);
+    }
+
+    function clickSendButton() {
+        const btn = document.querySelector(
+            '#send_but, #option_send, #send_form button[type="submit"], button.send_button, .send_button, button[title="Send"], button[aria-label="Send"], .fa-paper-plane'
+        );
+        if (btn && typeof btn.click === 'function') {
+            btn.click();
+            return true;
+        }
+        return false;
+    }
+
+    async function trySendByContextApi(text) {
+        const c = ctx();
+        if (!c) return false;
+
+        const names = ['sendMessageAsUser', 'sendUserMessage', 'sendMessage'];
+        for (const name of names) {
+            const fn = c[name];
+            if (typeof fn === 'function') {
+                try {
+                    const ret = await fn.call(c, text);
+                    if (ret !== false) return true;
+                } catch (e) {
+                    console.warn(`[fair-game-referee] ${name} failed`, e);
+                }
+            }
+        }
+        return false;
+    }
+
+    async function trySendBySlash(text) {
+        try {
+            await runSlashQuiet(`/send ${quoteForSlashArg(text)}`);
+            return true;
+        } catch (e) {
+            console.warn('[fair-game-referee] /send failed', e);
+            return false;
+        }
+    }
+
+    function trySendByDom(text) {
+        const input = getSendTextarea();
+        if (!input) return false;
+
+        input.focus();
+        setNativeInputValue(input, text);
+
+        if (clickSendButton()) return true;
+
+        input.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                code: 'Enter',
+                bubbles: true,
+                cancelable: true,
+            })
+        );
+        input.dispatchEvent(
+            new KeyboardEvent('keyup', {
+                key: 'Enter',
+                code: 'Enter',
+                bubbles: true,
+                cancelable: true,
+            })
+        );
+        return true;
+    }
+
+    let inlineNextRoundSending = false;
+
+    async function advanceRoundInternally() {
+        const state = getChatState();
+        const gameType = normalizeGameType(
+            state.currentGame || state.pendingPacket?.gameType || ''
+        );
+
+        if (!gameType) {
+            return { ok: false, error: '请先开始飞行棋或国王游戏' };
+        }
+
+        if (gameType === 'flight') {
+            return await rollFlightByClick({ resetMap: false });
+        }
+
+        if (gameType === 'king') {
+            return await rollKingByClick();
+        }
+
+        return { ok: false, error: `不支持的游戏类型: ${gameType}` };
+    }
+
+    async function startFlightInternally() {
+        return await rollFlightByClick({ resetMap: true });
+    }
+
+    async function startKingInternally() {
+        return await rollKingByClick();
+    }
+
+    async function sendNextRoundMessageInline() {
+        if (inlineNextRoundSending) return;
+        inlineNextRoundSending = true;
+
+        console.log('[fair-game-referee] inline next round trigger');
+
+        try {
+            const result = await advanceRoundInternally();
+
+            if (result && result.ok) {
+                const round =
+                    result?.packet?.round ??
+                    getChatState().round ??
+                    '';
+                notifyInline(
+                    round ? `已内部进入下一回合（第${round}回合）` : '已内部进入下一回合',
+                    'success'
+                );
+                return;
+            }
+
+            notifyInline(`内部推进失败：${result?.error || '未知错误'}`, 'error');
+        } catch (e) {
+            console.error('[fair-game-referee] internal next round failed', e);
+            notifyInline('内部推进失败：执行异常', 'error');
+        } finally {
+            setTimeout(() => {
+                inlineNextRoundSending = false;
+            }, 250);
+        }
+    }
+
+    function createInlineActionButton(kind) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `${INLINE_ACTION_BTN_CLASS} ${kind}`;
+        btn.dataset.fgrAction = kind;
+
+        if (kind === INLINE_NEXT_ROUND_BUTTON_CLASS) {
+            btn.textContent = '⏭';
+            btn.setAttribute('title', '下一回合');
+            btn.setAttribute('aria-label', '下一回合');
+        } else if (kind === INLINE_START_FLIGHT_BUTTON_CLASS) {
+            btn.textContent = '✈';
+            btn.setAttribute('title', '开始飞行棋');
+            btn.setAttribute('aria-label', '开始飞行棋');
+        } else if (kind === INLINE_START_KING_BUTTON_CLASS) {
+            btn.textContent = '♚';
+            btn.setAttribute('title', '开始国王游戏');
+            btn.setAttribute('aria-label', '开始国王游戏');
+        }
+
+        btn.style.width = '24px';
+        btn.style.height = '24px';
+        btn.style.minWidth = '24px';
+        btn.style.minHeight = '24px';
+        btn.style.padding = '0';
+        btn.style.border = 'none';
+        btn.style.borderRadius = '7px';
+        btn.style.cursor = 'pointer';
+        btn.style.opacity = '0.96';
+        btn.style.background = 'var(--SmartThemeBlurTintColor, rgba(255,255,255,0.14))';
+        btn.style.color = 'var(--SmartThemeBodyColor, #fff)';
+        btn.style.display = 'inline-flex';
+        btn.style.alignItems = 'center';
+        btn.style.justifyContent = 'center';
+        btn.style.fontSize = '13px';
+        btn.style.lineHeight = '1';
+        btn.style.boxShadow = 'none';
+        btn.style.outline = 'none';
+        btn.style.webkitTapHighlightColor = 'transparent';
+        btn.style.backfaceVisibility = 'hidden';
+        btn.style.transform = 'translateZ(0)';
+
+        return btn;
+    }
+
+    function placeButtonLeftOfTarget(target) {
+        if (!(target instanceof HTMLElement)) return;
+        const parent = target.parentElement;
+        if (!(parent instanceof HTMLElement)) return;
+
+        if (getComputedStyle(parent).position === 'static') {
+            parent.style.position = 'relative';
+        }
+
+        let btn = parent.querySelector(`:scope > .${INLINE_NEXT_ROUND_BUTTON_CLASS}`);
+        if (!(btn instanceof HTMLElement)) {
+            btn = createInlineNextRoundButton();
+            parent.appendChild(btn);
+        }
+
+        const tStyle = getComputedStyle(target);
+        const top = target.offsetTop;
+        const targetH = target.offsetHeight || 22;
+
+        btn.style.top = `${top + Math.max(0, (targetH - 22) / 2)}px`;
+
+        const rightVal = parseFloat(tStyle.right);
+        if (Number.isFinite(rightVal)) {
+            btn.style.right = `${rightVal + (target.offsetWidth || 18) + 8}px`;
+            btn.style.left = '';
+        } else {
+            const left = Math.max(0, target.offsetLeft - 30);
+            btn.style.left = `${left}px`;
+            btn.style.right = '';
+        }
+    }
+
+    function mountInlineNextRoundButtonNearSwipeRight(root = document) {
+        if (!INLINE_ACTIONS_ENABLED) return;
+
+        const oldWraps = document.querySelectorAll(`.${INLINE_ACTION_WRAP_CLASS}`);
+        for (const old of oldWraps) old.remove();
+
+        const mesList = Array.from(document.querySelectorAll('.mes'));
+        const aiList = mesList.filter((el) => {
+            if (!(el instanceof HTMLElement)) return false;
+            if (el.classList.contains('is_user')) return false;
+            if (el.classList.contains('system_message')) return false;
+            if (el.getAttribute('is_user') === 'true') return false;
+            return true;
+        });
+
+        if (!aiList.length) return;
+
+        const lastAi = aiList[aiList.length - 1];
+        const target = lastAi.querySelector('.swipe_right.fa-solid.fa-chevron-right.interactable[role="button"]');
+        if (!(target instanceof HTMLElement)) return;
+
+        const parent = target.parentElement;
+        if (!(parent instanceof HTMLElement)) return;
+
+        if (getComputedStyle(parent).position === 'static') {
+            parent.style.position = 'relative';
+        }
+
+        const wrap = document.createElement('div');
+        wrap.className = INLINE_ACTION_WRAP_CLASS;
+        wrap.dataset.fgrMountedFor = 'last-ai-only';
+        wrap.style.position = 'absolute';
+        wrap.style.zIndex = '1000';
+        wrap.style.display = 'flex';
+        wrap.style.gap = '6px';
+        wrap.style.alignItems = 'center';
+        wrap.style.pointerEvents = 'auto';
+
+        const b1 = createInlineActionButton(INLINE_START_FLIGHT_BUTTON_CLASS);
+        const b2 = createInlineActionButton(INLINE_START_KING_BUTTON_CLASS);
+        const b3 = createInlineActionButton(INLINE_NEXT_ROUND_BUTTON_CLASS);
+
+        for (const b of [b1, b2, b3]) {
+            b.style.width = '28px';
+            b.style.height = '28px';
+            b.style.minWidth = '28px';
+            b.style.minHeight = '28px';
+            b.style.borderRadius = '8px';
+            b.style.fontSize = '15px';
+        }
+
+        wrap.appendChild(b1);
+        wrap.appendChild(b2);
+        wrap.appendChild(b3);
+        parent.appendChild(wrap);
+
+        const targetTop = target.offsetTop;
+        const targetH = target.offsetHeight || 28;
+        const wrapH = wrap.offsetHeight || 28;
+
+        const RIGHT_SAFE = 64;
+        const TOP_OFFSET = -4;
+        const baseTop = Math.max(0, targetTop + (targetH - wrapH) / 2);
+
+        wrap.style.right = `${RIGHT_SAFE}px`;
+        wrap.style.left = '';
+        wrap.style.top = `${baseTop}px`;
+        wrap.style.transform = `translateY(${TOP_OFFSET}px)`;
+    }
+
+    let inlineNextRoundGlobalClickBound = false;
+
+    function bindInlineNextRoundGlobalClick() {
+        if (inlineNextRoundGlobalClickBound) return;
+        inlineNextRoundGlobalClickBound = true;
+
+        const handler = async (e) => {
+            const target = e.target instanceof Element ? e.target.closest(`.${INLINE_ACTION_BTN_CLASS}`) : null;
+            if (!target) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+
+            const action = target.dataset.fgrAction || '';
+
+            if (action === INLINE_NEXT_ROUND_BUTTON_CLASS) {
+                await sendNextRoundMessageInline();
+                return;
+            }
+
+            if (action === INLINE_START_FLIGHT_BUTTON_CLASS) {
+                const r = await startFlightInternally();
+                if (r?.ok) notifyInline('已开始飞行棋', 'success');
+                else notifyInline(`飞行棋启动失败：${r?.error || '未知错误'}`, 'error');
+                return;
+            }
+
+            if (action === INLINE_START_KING_BUTTON_CLASS) {
+                const r = await startKingInternally();
+                if (r?.ok) notifyInline('已开始国王游戏', 'success');
+                else notifyInline(`国王游戏启动失败：${r?.error || '未知错误'}`, 'error');
+            }
+        };
+
+        document.addEventListener('pointerdown', handler, true);
+        document.addEventListener('click', handler, true);
+    }
+
+    let inlineNextRoundObserver = null;
+    let inlineNextRoundScanTimer = null;
+
+    function scheduleInlineNextRoundScan() {
+        if (!INLINE_ACTIONS_ENABLED) return;
+        if (inlineNextRoundScanTimer) clearTimeout(inlineNextRoundScanTimer);
+        inlineNextRoundScanTimer = setTimeout(() => {
+            requestAnimationFrame(() => {
+                mountInlineNextRoundButtonNearSwipeRight(document);
+            });
+        }, 120);
+    }
+
+    function bindInlineNextRoundButton() {
+        if (!INLINE_ACTIONS_ENABLED) return;
+        bindInlineNextRoundGlobalClick();
+
+        mountInlineNextRoundButtonNearSwipeRight(document);
+
+        if (!inlineNextRoundObserver) {
+            inlineNextRoundObserver = new MutationObserver(() => {
+                scheduleInlineNextRoundScan();
+            });
+            inlineNextRoundObserver.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+            });
+        }
+
+        const c = ctx();
+        if (c && c.eventSource && c.eventTypes) {
+            const rescan = () => scheduleInlineNextRoundScan();
+            c.eventSource.on(c.eventTypes.APP_READY, rescan);
+            c.eventSource.on(c.eventTypes.CHAT_CHANGED, rescan);
+            c.eventSource.on(c.eventTypes.MESSAGE_RECEIVED, rescan);
+            c.eventSource.on(c.eventTypes.MESSAGE_SWIPED, rescan);
+        }
+
+        setTimeout(() => mountInlineNextRoundButtonNearSwipeRight(document), 200);
+        setTimeout(() => mountInlineNextRoundButtonNearSwipeRight(document), 1000);
+    }
+
+    function quoteForSlashArg(value) {
+        return `"${String(value ?? '')
+            .replace(/\\/g, '\\\\')
+            .replace(/"/g, '\\"')}"`;
+    }
+
+    async function runSlashQuiet(scriptText) {
+        const c = ctx();
+        if (typeof c.executeSlashCommandsWithOptions === 'function') {
+            return await c.executeSlashCommandsWithOptions(scriptText, {
+                handleAsChatMessage: false,
+                scope: 'global',
+            });
+        }
+        if (typeof c.executeSlashCommands === 'function') {
+            return await c.executeSlashCommands(scriptText);
+        }
+        throw new Error('当前环境不支持 executeSlashCommands');
+    }
+
+    let qrBootstrapped = false;
+    let qrBootstrapRunning = false;
+    let qrBootstrapAttempts = 0;
+    const QR_BOOTSTRAP_MAX_ATTEMPTS = 8;
+    const QR_BOOTSTRAP_RETRY_MS = 1200;
+
+    function getRegisteredSlashCommandNames() {
+        const c = ctx();
+        const p = c?.SlashCommandParser;
+        if (!p) return new Set();
+
+        const out = new Set();
+
+        if (p.commands instanceof Map) {
+            for (const k of p.commands.keys()) out.add(String(k));
+        }
+
+        if (Array.isArray(p.commands)) {
+            for (const item of p.commands) {
+                if (typeof item === 'string') out.add(item);
+                else if (item && typeof item.name === 'string') out.add(item.name);
+            }
+        }
+
+        if (Array.isArray(p.commandList)) {
+            for (const item of p.commandList) {
+                if (typeof item === 'string') out.add(item);
+                else if (item && typeof item.name === 'string') out.add(item.name);
+            }
+        }
+
+        if (typeof p.getCommands === 'function') {
+            const list = p.getCommands();
+            if (list instanceof Map) {
+                for (const k of list.keys()) out.add(String(k));
+            } else if (Array.isArray(list)) {
+                for (const item of list) {
+                    if (typeof item === 'string') out.add(item);
+                    else if (item && typeof item.name === 'string') out.add(item.name);
+                }
+            }
+        }
+
+        return out;
+    }
+
+    function hasSlashCommand(name) {
+        const names = getRegisteredSlashCommandNames();
+        if (!names.size) return false;
+        return names.has(name);
+    }
+
+    function sendTextViaInputBox(text) {
+        const input = document.querySelector(
+            '#send_textarea, textarea#send_textarea, #chat-input textarea, #send_textarea_compact'
+        );
+        if (!input) return false;
+
+        input.focus();
+        input.value = text;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+
+        const sendBtn = document.querySelector(
+            '#send_but, #option_send, .fa-paper-plane, .fa-solid.fa-paper-plane'
+        );
+        if (sendBtn && typeof sendBtn.click === 'function') {
+            sendBtn.click();
+            return true;
+        }
+
+        input.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                code: 'Enter',
+                bubbles: true,
+            })
+        );
+        return true;
+    }
+
+    async function sendNextRoundMessage() {
+        const ok = sendTextViaInputBox(QR_TEXT_NEXT_ROUND);
+        if (ok) return;
+
+        try {
+            await runSlashQuiet(`/send ${quoteForSlashArg(QR_TEXT_NEXT_ROUND)}`);
+        } catch (e) {
+            console.error('[fair-game-referee] send next round failed', e);
+        }
+    }
+
+    function ensureFallbackQuickButton() {
+        const host = document.querySelector('#qr_container');
+        if (!host) return false;
+
+        let wrap = document.getElementById(QR_FALLBACK_WRAP_ID);
+        if (!wrap) {
+            wrap = document.createElement('div');
+            wrap.id = QR_FALLBACK_WRAP_ID;
+            wrap.style.display = 'flex';
+            wrap.style.flexWrap = 'wrap';
+            wrap.style.gap = '6px';
+            wrap.style.marginTop = '6px';
+            host.appendChild(wrap);
+        }
+
+        let btn = document.getElementById(QR_FALLBACK_BUTTON_ID);
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.id = QR_FALLBACK_BUTTON_ID;
+            btn.type = 'button';
+            btn.className = 'menu_button interactable';
+            btn.textContent = QR_LABEL_NEXT_ROUND;
+            btn.title = QR_TITLE_NEXT_ROUND;
+            btn.style.minHeight = '28px';
+            btn.style.padding = '4px 10px';
+            btn.addEventListener('click', () => {
+                sendNextRoundMessage();
+            });
+            wrap.appendChild(btn);
+        } else {
+            btn.textContent = QR_LABEL_NEXT_ROUND;
+            btn.title = QR_TITLE_NEXT_ROUND;
+        }
+
+        return true;
+    }
+
+    async function ensureQuickReplyButtons() {
+        if (!QR_BOOTSTRAP_ENABLED) return false;
+        if (qrBootstrapped) return true;
+        if (qrBootstrapRunning) return false;
+
+        qrBootstrapRunning = true;
+
+        const c = ctx();
+        if (!c) {
+            qrBootstrapRunning = false;
+            return false;
+        }
+
+        const hasQrCreate = hasSlashCommand('qr-create');
+        const hasQrPresetAdd = hasSlashCommand('qr-presetadd');
+        const hasQrSet = hasSlashCommand('qrset');
+
+        if (!hasQrCreate || !hasQrPresetAdd || !hasQrSet) {
+            const ok = ensureFallbackQuickButton();
+            if (ok) {
+                qrBootstrapped = true;
+                qrBootstrapRunning = false;
+                return true;
+            }
+            qrBootstrapRunning = false;
+            return false;
+        }
+
+        const preset = quoteForSlashArg(QR_PRESET_NAME);
+        const label = quoteForSlashArg(QR_LABEL_NEXT_ROUND);
+        const title = quoteForSlashArg(QR_TITLE_NEXT_ROUND);
+        const text = quoteForSlashArg(QR_TEXT_NEXT_ROUND);
+
+        let buttonReady = false;
+
+        try {
+            await runSlashQuiet(`/qr-presetadd enabled=true inject=false slots=6 ${preset}`);
+        } catch (e) {
+            console.warn('[fair-game-referee] qr-presetadd failed', e);
+        }
+
+        try {
+            await runSlashQuiet(`/qr-create set=${preset} label=${label} hidden=false title=${title} ${text}`);
+            buttonReady = true;
+        } catch (e) {
+            console.error('[fair-game-referee] qr-create failed', e);
+        }
+
+        if (buttonReady) {
+            try {
+                await runSlashQuiet(`/qrset ${preset}`);
+            } catch (e) {
+                console.warn('[fair-game-referee] qrset failed', e);
+            }
+            c.saveSettingsDebounced();
+            qrBootstrapped = true;
+        }
+
+        qrBootstrapRunning = false;
+        return qrBootstrapped;
+    }
+
+    async function bootstrapQuickReplyWithRetry() {
+        if (!QR_BOOTSTRAP_ENABLED) return;
+        if (qrBootstrapped) return;
+        qrBootstrapAttempts += 1;
+
+        const ok = await ensureQuickReplyButtons();
+        if (ok) return;
+
+        if (qrBootstrapAttempts < QR_BOOTSTRAP_MAX_ATTEMPTS) {
+            setTimeout(bootstrapQuickReplyWithRetry, QR_BOOTSTRAP_RETRY_MS);
+        } else {
+            console.error('[fair-game-referee] QR bootstrap exhausted retries');
+        }
+    }
+
+    function bindQuickReplyBootstrap() {
+        const c = ctx();
+        if (!c || !c.eventSource || !c.eventTypes) return;
+
+        const bootstrap = async () => {
+            await bootstrapQuickReplyWithRetry();
+        };
+
+        c.eventSource.on(c.eventTypes.APP_READY, bootstrap);
+        c.eventSource.on(c.eventTypes.EXTENSIONS_FIRST_LOAD, bootstrap);
+        c.eventSource.on(c.eventTypes.SETTINGS_LOADED_AFTER, bootstrap);
+        c.eventSource.on(c.eventTypes.CHAT_CHANGED, bootstrap);
+
+        bootstrap();
+        setTimeout(bootstrap, 800);
     }
 
     function parseList(text) {
@@ -1645,4 +2286,8 @@
             console.error("[fair-game-referee] 初始化失败", e);
         }
     });
+    if (QR_BOOTSTRAP_ENABLED) {
+        bindQuickReplyBootstrap();
+    }
+    bindInlineNextRoundButton();
 })();
