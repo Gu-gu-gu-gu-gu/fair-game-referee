@@ -169,30 +169,41 @@
 
 ## 第三方资源与署名
 
-- Lucide Icons
-  https://lucide.dev
-  许可证：ISC
+- **Lucide**
+  - 项目地址：https://lucide.dev
+  - 许可证：ISC License
+  - 许可证文本：https://github.com/lucide-icons/lucide/blob/main/LICENSE
 
-- Remix Icon
-  https://remixicon.com/
-  许可证：Apache-2.0
+- **Remix Icon**
+  - 项目地址：https://remixicon.com/
+  - 许可证：Apache License 2.0
+  - 许可证文本：https://github.com/Remix-Design/RemixIcon/blob/master/License
 
-- Vector Playing Cards（A-K）
-  作者：Byron Knoll
-  来源：http://code.google.com/p/vector-playing-cards/
-  许可证：CC0 1.0
-  说明：CC0 通常不强制署名，但建议保留来源信息
+- **Vector Playing Cards（扑克牌 SVG）**
+  - 作者：Byron Knoll
+  - 项目地址：http://code.google.com/p/vector-playing-cards/
+  - 许可证：CC0 1.0
 
-- Joker/Trumps（王等补充素材）
-  来源：https://opengameart.org/content/dice-trumps
-  说明文字涉及：Nora Shishi、rh0、usr_share、Kumpu
-  许可证：CC-BY 3.0
-  说明：**需署名**
+- **音效资源（Pixabay）**
+  - Dice 音效：
+    - 来源：https://pixabay.com/sound-effects/film-special-effects-dice-142528/
+    - 署名文本：Sound Effect by u_qpfzpydtro from Pixabay
+  - Flip 音效：
+    - 来源：https://pixabay.com/sound-effects/flip-card-91468/
+    - 署名文本：Sound Effect by freesound_community from Pixabay
+  - 许可证：Pixabay License（以资源页实时条款为准）
 
-建议在项目中保留如下署名文本：
+- **音效资源（ElevenLabs Sound Effects）**
+  - 平台地址：https://elevenlabs.io/app/sound-effects
+  - 用途：部分“发牌/洗牌”音效由该平台生成后再剪辑
+  - 许可说明（按 ElevenLabs 条款）：
+    - 免费计划生成内容：不可用于商业用途；公开发布时需按条款归因（如包含 `elevenlabs.io` 或 `11.ai`）
+    - 付费计划生成内容：通常可商用（非 Beta 服务），以当时订阅协议/服务条款为准
+  - 说明：若未来音效来源或授权状态变更，本项目会同步更新此节
 
-- Vector Playing Cards (CC0) by Byron Knoll
-  http://code.google.com/p/vector-playing-cards/
+详细清单见：`THIRD_PARTY_NOTICES.md`
+
+如有遗漏、署名不完整或侵权问题，请联系维护者处理，本项目会第一时间修正或下架相关资源。
 
 ---
 
