@@ -460,7 +460,7 @@
 
         <div id="fgr-card-players-tip" class="fgr-map-tip"></div>
         <div id="fgr-card-grid" class="fgr-card-grid"></div>
-        <div class="fgr-map-tip">说明：切到本页会自动洗牌；也可手动点洗牌按钮重洗。点击任意牌会翻牌并进入下一轮国王游戏。</div>
+        <div class="fgr-map-tip">说明：可手动点洗牌按钮洗牌。点击任意牌会翻牌并进入下一轮国王游戏。</div>
       </div>
 
       <div id="fgr-tab-edit" class="fgr-tab">
