@@ -14,7 +14,7 @@
         if (typeof UI.rollAudio === 'undefined') UI.rollAudio = null;
         if (typeof UI.rollAudioStopTimer === 'undefined') UI.rollAudioStopTimer = null;
 
-        UI.ensureCellEditorModal = function() {
+        UI.ensureCellEditorModal = function () {
             if ($('#fgr-cell-editor-modal').length) return;
 
             $('body').append(`
@@ -60,29 +60,28 @@
             $('#fgr-cell-edit-delete').on('click', () => this.deleteCellEditorModal());
 
             $('#fgr-cell-editor-modal').on('click', (e) => {
-                if (e.target && e.target.id === 'fgr-cell-editor-modal') this.closeCellEditorModal();
+                if (e.target && e.target.id === 'fgr-cell-editor-modal')
+                    this.closeCellEditorModal();
             });
         };
 
-        UI.normalizeDiceFaces = function(input) {
+        UI.normalizeDiceFaces = function (input) {
             let arr = [];
             if (Array.isArray(input)) arr = input;
             else if (Number.isFinite(Number(input))) arr = [Number(input)];
 
-            arr = arr
-                .map(x => Math.min(6, Math.max(1, Math.trunc(Number(x) || 1))))
-                .slice(0, 2);
+            arr = arr.map((x) => Math.min(6, Math.max(1, Math.trunc(Number(x) || 1)))).slice(0, 2);
 
             if (!arr.length) arr = [1];
             return arr;
         };
 
-        UI.setCupDieFace = function($el, n) {
+        UI.setCupDieFace = function ($el, n) {
             const v = Math.min(6, Math.max(1, Math.trunc(Number(n) || 1)));
             $el.removeClass('face-1 face-2 face-3 face-4 face-5 face-6').addClass('face-' + v);
         };
 
-        UI.setBoardDiceFaces = function(values) {
+        UI.setBoardDiceFaces = function (values) {
             const faces = this.normalizeDiceFaces(values);
             const $d1 = $('#fgr-board-die-1');
             const $d2 = $('#fgr-board-die-2');
@@ -101,7 +100,7 @@
             this.boardDieValue = faces;
         };
 
-        UI.openCellEditorModal = function(pos) {
+        UI.openCellEditorModal = function (pos) {
             const p = Math.trunc(Number(pos));
             if (!Number.isFinite(p) || p <= 0) return;
 
@@ -124,12 +123,12 @@
             }
         };
 
-        UI.closeCellEditorModal = function() {
+        UI.closeCellEditorModal = function () {
             $('#fgr-cell-editor-modal').hide();
             this.editingPos = null;
         };
 
-        UI.saveCellEditorModal = function() {
+        UI.saveCellEditorModal = function () {
             const pos = Math.trunc(Number(this.editingPos));
             if (!Number.isFinite(pos) || pos <= 0) return;
 
@@ -153,7 +152,7 @@
             toastr.success(`第 ${pos} 格事件已保存`);
         };
 
-        UI.deleteCellEditorModal = function() {
+        UI.deleteCellEditorModal = function () {
             const pos = Math.trunc(Number(this.editingPos));
             if (!Number.isFinite(pos) || pos <= 0) return;
 
@@ -163,17 +162,17 @@
             toastr.info(`已删除第 ${pos} 格事件`);
         };
 
-        UI.quickSaveAnimSpeed = function() {
+        UI.quickSaveAnimSpeed = function () {
             const s = this.getSettings();
             const ms = Math.trunc(Number($('#fgr-map-anim-speed').val()));
             s.clickAnimationMs = Number.isFinite(ms) ? Math.min(6000, Math.max(800, ms)) : 2200;
             this.saveSettings();
         };
 
-        UI.ensureRollAudio = function() {
+        UI.ensureRollAudio = function () {
             if (this.rollAudio) return this.rollAudio;
             try {
-                const url = encodeURI('/scripts/extensions/third-party/fair-game-referee/骰子.mp3');
+                const url = encodeURI('/scripts/extensions/third-party/fair-game-referee/assets/sfx/Dice.mp3');
                 const a = new Audio(url);
                 a.preload = 'auto';
                 a.volume = 0.6;
@@ -185,7 +184,7 @@
             }
         };
 
-        UI.playRollSound = function(durationMs) {
+        UI.playRollSound = function (durationMs) {
             const a = this.ensureRollAudio();
             if (!a) return;
 
@@ -215,11 +214,11 @@
             }
         };
 
-        UI.sleep = function(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
+        UI.sleep = function (ms) {
+            return new Promise((resolve) => setTimeout(resolve, ms));
         };
 
-        UI.setRollBtnLocked = function(locked) {
+        UI.setRollBtnLocked = function (locked) {
             const $dice = $('#fgr-board-dice');
             if (!$dice.length) return;
             $dice.toggleClass('locked', !!locked);
@@ -227,7 +226,7 @@
             $dice.attr('aria-disabled', locked ? 'true' : 'false');
         };
 
-        UI.playDiceAnimation = async function(finalValues, durationMs) {
+        UI.playDiceAnimation = async function (finalValues, durationMs) {
             const finalFaces = this.normalizeDiceFaces(finalValues);
             const count = finalFaces.length;
 
@@ -250,7 +249,10 @@
             $d2.addClass('rolling');
 
             while (Date.now() < endAt) {
-                const randFaces = Array.from({ length: count }, () => 1 + Math.floor(Math.random() * 6));
+                const randFaces = Array.from(
+                    { length: count },
+                    () => 1 + Math.floor(Math.random() * 6)
+                );
                 this.setBoardDiceFaces(randFaces);
 
                 const t = (Date.now() - start) / Math.max(1, total);
@@ -271,7 +273,7 @@
             $d2.removeClass('settle');
         };
 
-        UI.playMoveAnimation = async function(anim, durationMs) {
+        UI.playMoveAnimation = async function (anim, durationMs) {
             const before = Object.assign({}, anim?.beforePositions || {});
             const after = Object.assign({}, anim?.afterPositions || {});
             const turns = Array.isArray(anim?.turns) ? anim.turns : [];
@@ -279,12 +281,14 @@
 
             const order = Array.isArray(anim?.turnOrder) ? anim.turnOrder : Object.keys(after);
 
-            const names = Array.from(new Set([
-                ...order,
-                ...Object.keys(before),
-                ...Object.keys(after),
-                ...turns.map(t => String(t?.player || ''))
-            ])).filter(Boolean);
+            const names = Array.from(
+                new Set([
+                    ...order,
+                    ...Object.keys(before),
+                    ...Object.keys(after),
+                    ...turns.map((t) => String(t?.player || '')),
+                ])
+            ).filter(Boolean);
 
             this.animPositions = {};
             for (const name of names) {
@@ -301,7 +305,7 @@
                 if (!Number.isFinite(cur) || !Number.isFinite(target)) return;
                 if (cur === target) return;
                 while (cur !== target) {
-                    cur += (cur < target ? 1 : -1);
+                    cur += cur < target ? 1 : -1;
                     this.animPositions[name] = cur;
                     this.renderBoardCanvas();
                     await this.sleep(stepMs);
@@ -319,7 +323,7 @@
             if (!turns.length) {
                 const collisionVictims = new Set(
                     Array.isArray(anim?.collisionVictims)
-                        ? anim.collisionVictims.map(x => String(x || '').trim()).filter(Boolean)
+                        ? anim.collisionVictims.map((x) => String(x || '').trim()).filter(Boolean)
                         : []
                 );
 
@@ -333,7 +337,10 @@
                 }
                 if (totalSteps <= 0) totalSteps = 1;
 
-                const stepMs = Math.max(240, Math.floor(Math.max(2800, Number(durationMs) || 3600) / totalSteps));
+                const stepMs = Math.max(
+                    240,
+                    Math.floor(Math.max(2800, Number(durationMs) || 3600) / totalSteps)
+                );
 
                 for (const name of names) {
                     let cur = Math.trunc(Number(this.animPositions[name]));
@@ -348,7 +355,7 @@
                     }
 
                     while (cur !== target) {
-                        cur += (cur < target ? 1 : -1);
+                        cur += cur < target ? 1 : -1;
                         this.animPositions[name] = cur;
                         this.renderBoardCanvas();
                         await this.sleep(stepMs);
@@ -384,7 +391,10 @@
                 const finalPos = Math.trunc(Number(t?.finalPos));
 
                 if (Number.isFinite(startPos)) {
-                    if (!Number.isFinite(this.animPositions[actor]) || this.animPositions[actor] !== startPos) {
+                    if (
+                        !Number.isFinite(this.animPositions[actor]) ||
+                        this.animPositions[actor] !== startPos
+                    ) {
                         this.animPositions[actor] = startPos;
                         this.renderBoardCanvas();
                         await this.sleep(60);
@@ -395,7 +405,9 @@
                     await stepMove(actor, startPos, landed, stepMs);
                 }
 
-                const preMarks = marks.filter(m => String(m?.actor || '') === actor && String(m?.phase || '') === 'pre');
+                const preMarks = marks.filter(
+                    (m) => String(m?.actor || '') === actor && String(m?.phase || '') === 'pre'
+                );
                 for (const m of preMarks) {
                     await jumpTo(String(m?.victim || ''), m?.victimAfterPos);
                 }
@@ -404,7 +416,9 @@
                     await stepMove(actor, landed, finalPos, stepMs);
                 }
 
-                const postMarks = marks.filter(m => String(m?.actor || '') === actor && String(m?.phase || '') === 'post');
+                const postMarks = marks.filter(
+                    (m) => String(m?.actor || '') === actor && String(m?.phase || '') === 'post'
+                );
                 for (const m of postMarks) {
                     await jumpTo(String(m?.victim || ''), m?.victimAfterPos);
                 }
@@ -416,7 +430,7 @@
             this.renderBoardCanvas();
         };
 
-        UI.handleRollClick = async function() {
+        UI.handleRollClick = async function () {
             if (this.rollAnimating) return;
 
             const s = this.getSettings();
@@ -463,7 +477,7 @@
             }
         };
 
-        UI.getCurrentMapData = function() {
+        UI.getCurrentMapData = function () {
             const parsed = this.getVisualMapData();
             if (parsed && parsed.ok) return parsed.map;
             try {
@@ -473,14 +487,14 @@
             return { winPosition: 20, events: [] };
         };
 
-        UI.getEventTextAt = function(map, pos) {
+        UI.getEventTextAt = function (map, pos) {
             const p = Math.trunc(Number(pos));
             const events = Array.isArray(map?.events) ? map.events : [];
-            const hit = events.find(e => Math.trunc(Number(e?.at)) === p);
+            const hit = events.find((e) => Math.trunc(Number(e?.at)) === p);
             return String(hit?.text || '').trim();
         };
 
-        UI.renderDirectorEditor = function(targetRowsSelector) {
+        UI.renderDirectorEditor = function (targetRowsSelector) {
             const state = this.getChatState ? this.getChatState() : null;
             if (!state) return;
 
@@ -491,16 +505,20 @@
             const map = this.getCurrentMapData();
             const players = Array.isArray(state.pendingPacket?.players)
                 ? state.pendingPacket.players
-                : (Array.isArray(state.players) ? state.players : []);
+                : Array.isArray(state.players)
+                  ? state.players
+                  : [];
 
-            const order = Array.isArray(state.pendingPacket?.turnOrder) && state.pendingPacket.turnOrder.length
-                ? state.pendingPacket.turnOrder
-                : players;
+            const order =
+                Array.isArray(state.pendingPacket?.turnOrder) &&
+                state.pendingPacket.turnOrder.length
+                    ? state.pendingPacket.turnOrder
+                    : players;
 
             const posObj = state.flight && state.flight.positions ? state.flight.positions : {};
 
             $rows.empty();
-            order.forEach(name => {
+            order.forEach((name) => {
                 const v = posObj && posObj[name] != null ? Math.trunc(Number(posObj[name])) : '';
                 const eventText = this.getEventTextAt(map, v);
 
@@ -517,7 +535,7 @@
             });
         };
 
-        UI.updateDirectorRowEvent = function(e) {
+        UI.updateDirectorRowEvent = function (e) {
             const map = this.getCurrentMapData();
             const $row = $(e.currentTarget).closest('tr');
             const v = Math.trunc(Number($(e.currentTarget).val()));
@@ -525,7 +543,7 @@
             $row.find('.fgr-director-event').text(text || '—');
         };
 
-        UI.applyDirectorEdits = async function() {
+        UI.applyDirectorEdits = async function () {
             const api = globalThis.FGR_ACTIONS?.applyDirectorEdits;
             if (typeof api !== 'function') {
                 return toastr.error('导演编辑接口未就绪，请刷新页面后重试');
@@ -551,7 +569,7 @@
             }
         };
 
-        UI.handleUndoRound = async function() {
+        UI.handleUndoRound = async function () {
             if (this.rollAnimating) return;
 
             const api = globalThis.FGR_ACTIONS?.undoRound;
@@ -573,7 +591,7 @@
             }
         };
 
-        UI.handleRedoRound = async function() {
+        UI.handleRedoRound = async function () {
             if (this.rollAnimating) return;
 
             const api = globalThis.FGR_ACTIONS?.redoRound;
@@ -595,7 +613,7 @@
             }
         };
 
-        UI.dedupeName = function(name, usedSet) {
+        UI.dedupeName = function (name, usedSet) {
             const base = String(name || '未命名地图').trim() || '未命名地图';
             let n = base;
             let i = 2;
@@ -606,7 +624,7 @@
             return n;
         };
 
-        UI.getSafeMapFromRaw = function(raw) {
+        UI.getSafeMapFromRaw = function (raw) {
             try {
                 const checked = this.validateFlightMapJson(JSON.stringify(raw));
                 if (!checked.ok) return null;
@@ -614,28 +632,36 @@
                 const events = Array.isArray(map.events) ? map.events : [];
                 return {
                     winPosition: Math.trunc(Number(map.winPosition) || 20),
-                    events: events.map(e => ({
-                        at: Math.trunc(Number(e.at)),
-                        move: Math.trunc(Number(e.move || 0)),
-                        text: String(e.text || '')
-                    })).filter(e => Number.isFinite(e.at))
+                    events: events
+                        .map((e) => ({
+                            at: Math.trunc(Number(e.at)),
+                            move: Math.trunc(Number(e.move || 0)),
+                            text: String(e.text || ''),
+                        }))
+                        .filter((e) => Number.isFinite(e.at)),
                 };
             } catch (_e) {
                 return null;
             }
         };
 
-        UI.getMapLibrary = function(settings) {
+        UI.getMapLibrary = function (settings) {
             let lib = null;
-            try { lib = JSON.parse(String(settings.mapLibraryJson || '')); } catch (_e) {}
+            try {
+                lib = JSON.parse(String(settings.mapLibraryJson || ''));
+            } catch (_e) {}
 
             if (!lib || typeof lib !== 'object') lib = { active: '默认地图', items: [] };
             if (!Array.isArray(lib.items)) lib.items = [];
             if (typeof lib.active !== 'string') lib.active = '';
 
             if (!lib.items.length) {
-                const fallbackChecked = this.validateFlightMapJson(settings.flightMapJson || '{"winPosition":20,"events":[]}');
-                const fallbackMap = fallbackChecked.ok ? fallbackChecked.map : { winPosition: 20, events: [] };
+                const fallbackChecked = this.validateFlightMapJson(
+                    settings.flightMapJson || '{"winPosition":20,"events":[]}'
+                );
+                const fallbackMap = fallbackChecked.ok
+                    ? fallbackChecked.map
+                    : { winPosition: 20, events: [] };
                 lib.items.push({ name: '默认地图', map: fallbackMap });
                 lib.active = '默认地图';
             }
@@ -651,21 +677,22 @@
                 cleaned.push({ name: fixedName, map: safe });
             }
 
-            if (!cleaned.length) cleaned.push({ name: '默认地图', map: { winPosition: 20, events: [] } });
+            if (!cleaned.length)
+                cleaned.push({ name: '默认地图', map: { winPosition: 20, events: [] } });
             lib.items = cleaned;
-            if (!lib.items.some(i => i.name === lib.active)) lib.active = lib.items[0].name;
+            if (!lib.items.some((i) => i.name === lib.active)) lib.active = lib.items[0].name;
             return lib;
         };
 
-        UI.setMapLibrary = function(settings, lib) {
+        UI.setMapLibrary = function (settings, lib) {
             settings.mapLibraryJson = JSON.stringify(lib, null, 2);
         };
 
-        UI.findMapByName = function(lib, name) {
-            return lib.items.find(i => i.name === name) || null;
+        UI.findMapByName = function (lib, name) {
+            return lib.items.find((i) => i.name === name) || null;
         };
 
-        UI.renderMapSelector = function(settings, lib) {
+        UI.renderMapSelector = function (settings, lib) {
             const $sel = $('#fgr-map-select');
             $sel.empty();
             for (const item of lib.items) {
@@ -677,7 +704,7 @@
             $sel.val(lib.active);
         };
 
-        UI.switchActiveMap = function(name, silent) {
+        UI.switchActiveMap = function (name, silent) {
             const s = this.getSettings();
             const lib = this.getMapLibrary(s);
             const item = this.findMapByName(lib, String(name || '').trim());
@@ -696,7 +723,7 @@
             if (!silent) toastr.success('已载入地图：' + item.name);
         };
 
-        UI.addMapRow = function(data, silent) {
+        UI.addMapRow = function (data, silent) {
             const d = data || { at: '', move: 0, text: '' };
             const row = $(`
 <tr class="fgr-map-row">
@@ -721,23 +748,27 @@
             if (!silent) this.renderBoardCanvas();
         };
 
-        UI.loadMapToEditor = function(map) {
+        UI.loadMapToEditor = function (map) {
             $('#fgr-map-win-position').val(Number(map.winPosition) || 20);
             $('#fgr-map-rows').empty();
             const events = Array.isArray(map.events) ? map.events : [];
             for (const e of events) {
-                this.addMapRow({
-                    at: Number(e.at),
-                    move: Number(e.move || 0),
-                    text: String(e.text || '')
-                }, true);
+                this.addMapRow(
+                    {
+                        at: Number(e.at),
+                        move: Number(e.move || 0),
+                        text: String(e.text || ''),
+                    },
+                    true
+                );
             }
             this.renderBoardCanvas();
         };
 
-        UI.getVisualMapData = function() {
+        UI.getVisualMapData = function () {
             const winPosition = Number($('#fgr-map-win-position').val());
-            if (!Number.isFinite(winPosition) || winPosition <= 0) return { ok: false, error: '终点格必须>0' };
+            if (!Number.isFinite(winPosition) || winPosition <= 0)
+                return { ok: false, error: '终点格必须>0' };
 
             const events = [];
             let bad = false;
@@ -746,12 +777,15 @@
                 const move = Number($(el).find('.fgr-move').val());
                 const text = String($(el).find('.fgr-text').val() || '').trim();
 
-                if (!Number.isFinite(at)) { bad = true; return false; }
+                if (!Number.isFinite(at)) {
+                    bad = true;
+                    return false;
+                }
 
                 events.push({
                     at: Math.trunc(at),
                     move: Number.isFinite(move) ? Math.trunc(move) : 0,
-                    text: text
+                    text: text,
                 });
             });
 
@@ -760,12 +794,18 @@
             return { ok: true, map: { winPosition: Math.trunc(winPosition), events: events } };
         };
 
-        UI.safeFilename = function(str) {
-            return String(str || 'map').replace(/[\\/:*?"<>|]/g, '_').trim() || 'map';
+        UI.safeFilename = function (str) {
+            return (
+                String(str || 'map')
+                    .replace(/[\\/:*?"<>|]/g, '_')
+                    .trim() || 'map'
+            );
         };
 
-        UI.downloadJson = function(filename, obj) {
-            const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json;charset=utf-8' });
+        UI.downloadJson = function (filename, obj) {
+            const blob = new Blob([JSON.stringify(obj, null, 2)], {
+                type: 'application/json;charset=utf-8',
+            });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -776,7 +816,7 @@
             URL.revokeObjectURL(url);
         };
 
-        UI.exportSelectedMap = function() {
+        UI.exportSelectedMap = function () {
             const s = this.getSettings();
             const lib = this.getMapLibrary(s);
             const name = String($('#fgr-map-select').val() || '').trim();
@@ -786,24 +826,24 @@
             this.downloadJson('fgr-map-' + this.safeFilename(item.name) + '.json', {
                 fgrMap: true,
                 name: item.name,
-                map: item.map
+                map: item.map,
             });
             toastr.success('已导出地图：' + item.name);
         };
 
-        UI.exportAllMapsPack = function() {
+        UI.exportAllMapsPack = function () {
             const s = this.getSettings();
             const lib = this.getMapLibrary(s);
             this.downloadJson('fgr-map-pack.json', {
                 fgrMapPack: true,
                 version: 1,
                 active: lib.active,
-                maps: lib.items
+                maps: lib.items,
             });
             toastr.success('已导出全部地图包');
         };
 
-        UI.exportByChoice = function() {
+        UI.exportByChoice = function () {
             const ans = window.prompt('导出类型：输入 1=选中地图，2=全部地图包', '1');
             if (ans === null) return;
             const x = String(ans).trim();
@@ -811,7 +851,7 @@
             else this.exportSelectedMap();
         };
 
-        UI.importMapFile = async function(e) {
+        UI.importMapFile = async function (e) {
             const file = e && e.target && e.target.files ? e.target.files[0] : null;
             $('#fgr-map-import-file').val('');
             if (!file) return;
@@ -822,7 +862,7 @@
 
                 const s = this.getSettings();
                 const lib = this.getMapLibrary(s);
-                const used = new Set(lib.items.map(i => i.name));
+                const used = new Set(lib.items.map((i) => i.name));
                 const imported = [];
 
                 const pushOne = (name, mapRaw) => {
@@ -836,10 +876,15 @@
                 };
 
                 if (obj && obj.fgrMapPack === true && Array.isArray(obj.maps)) {
-                    for (const m of obj.maps) pushOne(m && m.name ? m.name : '导入地图', m && m.map ? m.map : {});
+                    for (const m of obj.maps)
+                        pushOne(m && m.name ? m.name : '导入地图', m && m.map ? m.map : {});
                 } else if (obj && obj.fgrMap === true && obj.map) {
                     pushOne(obj.name || file.name.replace(/\.json$/i, ''), obj.map);
-                } else if (obj && Number.isFinite(Number(obj.winPosition)) && Array.isArray(obj.events)) {
+                } else if (
+                    obj &&
+                    Number.isFinite(Number(obj.winPosition)) &&
+                    Array.isArray(obj.events)
+                ) {
                     pushOne(file.name.replace(/\.json$/i, ''), obj);
                 } else {
                     return toastr.error('导入失败：不是有效地图JSON或地图包JSON');
@@ -864,27 +909,29 @@
             }
         };
 
-        UI.getPosCellInfo = function(pos, cols, rowsTotal) {
+        UI.getPosCellInfo = function (pos, cols, rowsTotal) {
             const idx = pos - 1;
             const rowFromBottom = Math.floor(idx / cols);
             const offset = idx % cols;
-            const col = (rowFromBottom % 2 === 0) ? offset : (cols - 1 - offset);
+            const col = rowFromBottom % 2 === 0 ? offset : cols - 1 - offset;
             const rowTop = rowsTotal - 1 - rowFromBottom;
             return { col, rowTop };
         };
 
-        UI.getEventsMap = function(events) {
+        UI.getEventsMap = function (events) {
             const map = new Map();
-            for (const e of (events || [])) {
+            for (const e of events || []) {
                 const at = Number(e.at);
                 if (Number.isFinite(at)) map.set(at, e);
             }
             return map;
         };
 
-        UI.getPiecesByPos = function(win) {
+        UI.getPiecesByPos = function (win) {
             const state = this.getChatState ? this.getChatState() : null;
-            const positions = this.animPositions || (state && state.flight && state.flight.positions ? state.flight.positions : {});
+            const positions =
+                this.animPositions ||
+                (state && state.flight && state.flight.positions ? state.flight.positions : {});
             const buckets = new Map();
 
             for (const name in positions) {
@@ -903,7 +950,7 @@
             return { buckets, positions };
         };
 
-        UI.colorByName = function(name) {
+        UI.colorByName = function (name) {
             const palette = ['#ff6fa8', '#6fc2ff', '#ffd36f', '#8affb2', '#c59bff', '#ff9f6f'];
             let h = 0;
             const s = String(name || '');
@@ -911,7 +958,7 @@
             return palette[h % palette.length];
         };
 
-        UI.renderPieceList = function(positionsObj) {
+        UI.renderPieceList = function (positionsObj) {
             const entries = Object.entries(positionsObj || {})
                 .map(([name, p]) => [name, Number(p)])
                 .filter(([, p]) => Number.isFinite(p))
@@ -924,10 +971,14 @@
                 return;
             }
 
-            $list.html(entries.map(([name, p]) => `<span>${name}: <b>${Math.trunc(p)}</b>格</span>`).join(' ｜ '));
+            $list.html(
+                entries
+                    .map(([name, p]) => `<span>${name}: <b>${Math.trunc(p)}</b>格</span>`)
+                    .join(' ｜ ')
+            );
         };
 
-        UI.roundRect = function(ctx, x, y, w, h, r, fill, stroke) {
+        UI.roundRect = function (ctx, x, y, w, h, r, fill, stroke) {
             const rr = Math.min(r, w / 2, h / 2);
             ctx.beginPath();
             ctx.moveTo(x + rr, y);
@@ -940,12 +991,12 @@
             if (stroke) ctx.stroke();
         };
 
-        UI.clipText = function(t, n) {
+        UI.clipText = function (t, n) {
             const s = String(t || '');
-            return s.length <= n ? s : (s.slice(0, n) + '…');
+            return s.length <= n ? s : s.slice(0, n) + '…';
         };
 
-        UI.renderBoardCanvas = function() {
+        UI.renderBoardCanvas = function () {
             const parsed = this.getVisualMapData();
             const canvas = document.getElementById('fgr-board-canvas');
             if (!canvas) return;
@@ -968,7 +1019,7 @@
 
             const wrap = document.getElementById('fgr-board-wrap');
             const dpr = Math.max(1, window.devicePixelRatio || 1);
-            const cssWidth = Math.max(320, ((wrap ? wrap.clientWidth : 900) - 20));
+            const cssWidth = Math.max(320, (wrap ? wrap.clientWidth : 900) - 20);
 
             const cols = 5;
             this.boardCols = cols;
@@ -1083,7 +1134,9 @@
                     }
 
                     ctx.fillStyle = grad;
-                    ctx.strokeStyle = isCupCell ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.20)';
+                    ctx.strokeStyle = isCupCell
+                        ? 'rgba(255,255,255,0.14)'
+                        : 'rgba(255,255,255,0.20)';
                     ctx.lineWidth = 1;
                     this.roundRect(ctx, x, y, w, h, 8, true, true);
                     ctx.restore();
@@ -1129,7 +1182,10 @@
                             show.forEach((name, i) => {
                                 const cx = x + w - 12 - i * 18;
                                 const cy = y + 12;
-                                const first = String(name || '?').trim().charAt(0) || '?';
+                                const first =
+                                    String(name || '?')
+                                        .trim()
+                                        .charAt(0) || '?';
 
                                 ctx.save();
                                 ctx.setLineDash([3, 2]);
@@ -1171,7 +1227,7 @@
             this.renderPieceList(pieceData.positions);
 
             for (const [pos, names] of pieceData.buckets.entries()) {
-                const cell = this.cellRects.find(c => c.pos === pos);
+                const cell = this.cellRects.find((c) => c.pos === pos);
                 if (!cell) continue;
 
                 const r = 8;
@@ -1204,14 +1260,18 @@
                     ctx.fillStyle = '#fff';
                     ctx.font = '10px sans-serif';
                     ctx.textAlign = 'end';
-                    ctx.fillText('+' + (names.length - 4), cell.x + cell.w - 38, cell.y + cell.h - 6);
+                    ctx.fillText(
+                        '+' + (names.length - 4),
+                        cell.x + cell.w - 38,
+                        cell.y + cell.h - 6
+                    );
                 }
                 ctx.textAlign = 'left';
                 ctx.textBaseline = 'alphabetic';
             }
         };
 
-        UI.placeBoardDice = function(rowsTotal, fixedCenter) {
+        UI.placeBoardDice = function (rowsTotal, fixedCenter) {
             const $dice = $('#fgr-board-dice');
             if (!$dice.length) return;
 
@@ -1234,7 +1294,7 @@
             const midRowTop = Math.floor((rowCount - 1) / 2);
             const centerCol = 2;
 
-            let target = this.cellRects.find(c => c.rowTop === midRowTop && c.col === centerCol);
+            let target = this.cellRects.find((c) => c.rowTop === midRowTop && c.col === centerCol);
             if (!target) target = this.cellRects[Math.floor(this.cellRects.length / 2)];
             if (!target) return;
 
@@ -1249,7 +1309,7 @@
             this.setBoardDiceFaces(this.boardDieValue);
         };
 
-        UI.onCanvasClick = function(evt) {
+        UI.onCanvasClick = function (evt) {
             const canvas = document.getElementById('fgr-board-canvas');
             if (!canvas) return;
 
@@ -1257,7 +1317,9 @@
             const x = evt.clientX - rect.left;
             const y = evt.clientY - rect.top;
 
-            const hit = this.cellRects.find(c => x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h);
+            const hit = this.cellRects.find(
+                (c) => x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h
+            );
             if (!hit) return;
             if (Number(hit.pos) === Number(this.cupPos)) return;
 
@@ -1266,7 +1328,7 @@
             this.openCellEditorModal(this.selectedPos);
         };
 
-        UI.findRowByAt = function(pos) {
+        UI.findRowByAt = function (pos) {
             let found = null;
             $('#fgr-map-rows .fgr-map-row').each((_, el) => {
                 const at = Number($(el).find('.fgr-at').val());
@@ -1278,7 +1340,7 @@
             return found;
         };
 
-        UI.upsertRow = function(at, move, text) {
+        UI.upsertRow = function (at, move, text) {
             const row = this.findRowByAt(at);
             if (row) {
                 row.find('.fgr-move').val(move);
@@ -1288,17 +1350,20 @@
             this.addMapRow({ at, move, text }, true);
         };
 
-        UI.removeRowByAt = function(at) {
+        UI.removeRowByAt = function (at) {
             const row = this.findRowByAt(at);
             if (row) row.remove();
         };
 
-        UI.editEventByPos = function(pos) {
+        UI.editEventByPos = function (pos) {
             const row = this.findRowByAt(pos);
             const oldMove = row ? Number(row.find('.fgr-move').val() || 0) : 0;
             const oldText = row ? String(row.find('.fgr-text').val() || '') : '';
 
-            const moveInput = window.prompt('第 ' + pos + ' 格：输入 move（留空=删除该格事件）', String(oldMove));
+            const moveInput = window.prompt(
+                '第 ' + pos + ' 格：输入 move（留空=删除该格事件）',
+                String(oldMove)
+            );
             if (moveInput === null) return;
 
             if (String(moveInput).trim() === '') {
@@ -1322,7 +1387,7 @@
             this.renderBoardCanvas();
         };
 
-        UI.resetFlightProgress = async function() {
+        UI.resetFlightProgress = async function () {
             const state = this.getChatState ? this.getChatState() : null;
             if (!state) return toastr.error('无法读取当前聊天状态');
 
@@ -1365,16 +1430,17 @@
             toastr.success('已重置飞行棋进度，可重新开始');
         };
 
-        UI.saveMapFromVisual = function() {
+        UI.saveMapFromVisual = function () {
             const s = this.getSettings();
             const parsed = this.getVisualMapData();
             if (!parsed.ok) return toastr.error(parsed.error);
 
             const lib = this.getMapLibrary(s);
             let targetName = String($('#fgr-map-select').val() || '').trim();
-            if (!targetName) targetName = lib.active || (lib.items[0] ? lib.items[0].name : '默认地图');
+            if (!targetName)
+                targetName = lib.active || (lib.items[0] ? lib.items[0].name : '默认地图');
 
-            const idx = lib.items.findIndex(i => i.name === targetName);
+            const idx = lib.items.findIndex((i) => i.name === targetName);
             if (idx >= 0) lib.items[idx] = { name: targetName, map: parsed.map };
             else lib.items.push({ name: targetName, map: parsed.map });
             lib.active = targetName;
@@ -1389,7 +1455,7 @@
             toastr.success('已保存并覆盖地图：' + targetName);
         };
 
-        UI.renameSelectedMap = function() {
+        UI.renameSelectedMap = function () {
             const s = this.getSettings();
             const lib = this.getMapLibrary(s);
 
@@ -1402,7 +1468,8 @@
 
             if (!newName) return toastr.warning('新名称不能为空');
             if (oldName === newName) return toastr.info('名称未变化');
-            if (lib.items.some(i => i.name === newName)) return toastr.error('已存在同名地图，请换个名字');
+            if (lib.items.some((i) => i.name === newName))
+                return toastr.error('已存在同名地图，请换个名字');
 
             const item = this.findMapByName(lib, oldName);
             if (!item) return toastr.error('未找到选中地图');
@@ -1416,7 +1483,7 @@
             toastr.success(`已重命名：${oldName} → ${newName}`);
         };
 
-        UI.deleteSelectedMap = function() {
+        UI.deleteSelectedMap = function () {
             const s = this.getSettings();
             const lib = this.getMapLibrary(s);
             const name = String($('#fgr-map-select').val() || '').trim();
@@ -1427,8 +1494,9 @@
             const ok = window.confirm('确定删除地图 "' + name + '" 吗？');
             if (!ok) return;
 
-            lib.items = lib.items.filter(i => i.name !== name);
-            if (!lib.items.length) lib.items = [{ name: '默认地图', map: { winPosition: 20, events: [] } }];
+            lib.items = lib.items.filter((i) => i.name !== name);
+            if (!lib.items.length)
+                lib.items = [{ name: '默认地图', map: { winPosition: 20, events: [] } }];
             lib.active = lib.items[0].name;
 
             this.setMapLibrary(s, lib);
