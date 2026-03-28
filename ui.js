@@ -1,4 +1,6 @@
 (() => {
+    const EXT_PATH = "/scripts/extensions/third-party/fair-game-referee";
+    const LAST_TAB_STORAGE_KEY = "fgr_last_tab";
     const UI = {
         inited: false,
         getSettings: null,
@@ -7,7 +9,7 @@
         saveMetadata: null,
         validateFlightMapJson: null,
 
-        characterProfileKey: 'fair-game-referee_character_profile',
+        characterProfileKey: "fair-game-referee_character_profile",
 
         selectedPos: null,
         boardCols: 10,
@@ -20,32 +22,45 @@
         rollAudio: null,
         rollAudioStopTimer: null,
 
+        cardBusy: false,
+        currentCardPool: [],
+        currentCardVisuals: [],
+        cardLayout: null,
+        cardSfx: { shuffle: null, flip: null, deal: null },
+        kingDirectorPacket: null,
+        lastTab: "map",
+
         normalizeDiceMode(raw) {
-            const x = String(raw || '').trim().toLowerCase();
-            if (['fixed', '固定', '固定模式', 'manual'].includes(x)) return 'fixed';
-            return 'auto';
+            const x = String(raw || "")
+                .trim()
+                .toLowerCase();
+            if (["fixed", "固定", "固定模式", "manual"].includes(x))
+                return "fixed";
+            return "auto";
         },
 
         getCurrentCharacterName() {
             const c = SillyTavern.getContext();
             const chid = c.characterId;
-            if (typeof chid !== 'number' || chid < 0) return '';
-            return String(c.characters?.[chid]?.name || '').trim();
+            if (typeof chid !== "number" || chid < 0) return "";
+            return String(c.characters?.[chid]?.name || "").trim();
         },
 
         getPlayerProfileLibrary(settings) {
             let lib = {};
             try {
-                lib = JSON.parse(String(settings.playerProfileLibraryJson || '{}'));
+                lib = JSON.parse(
+                    String(settings.playerProfileLibraryJson || "{}")
+                );
             } catch (_e) {
                 lib = {};
             }
 
-            if (!lib || typeof lib !== 'object' || Array.isArray(lib)) lib = {};
+            if (!lib || typeof lib !== "object" || Array.isArray(lib)) lib = {};
 
             for (const k of Object.keys(lib)) {
-                if (typeof lib[k] !== 'string') {
-                    lib[k] = String(lib[k] ?? '');
+                if (typeof lib[k] !== "string") {
+                    lib[k] = String(lib[k] ?? "");
                 }
             }
 
@@ -63,7 +78,7 @@
 
             if (charName) {
                 if (!Object.hasOwn(lib, charName)) {
-                    lib[charName] = '';
+                    lib[charName] = "";
                     changed = true;
                 }
                 if (settings.activePlayerProfileName !== charName) {
@@ -71,9 +86,12 @@
                     changed = true;
                 }
             } else {
-                const fallback = String(settings.activePlayerProfileName || '默认名单').trim() || '默认名单';
+                const fallback =
+                    String(
+                        settings.activePlayerProfileName || "默认名单"
+                    ).trim() || "默认名单";
                 if (!Object.hasOwn(lib, fallback)) {
-                    lib[fallback] = '';
+                    lib[fallback] = "";
                     changed = true;
                 }
                 if (settings.activePlayerProfileName !== fallback) {
@@ -93,21 +111,23 @@
             const s = this.getSettings();
             const ensured = this.ensureCharacterNamedProfile(s);
             const lib = ensured.lib;
-            const active = String(s.activePlayerProfileName || '').trim();
+            const active = String(s.activePlayerProfileName || "").trim();
 
-            const $sel = $('#fgr-edit-profile-select');
+            const $sel = $("#fgr-edit-profile-select");
             if (!$sel.length) return;
 
             $sel.empty();
-            Object.keys(lib).sort((a, b) => a.localeCompare(b)).forEach(name => {
-                const $opt = $('<option></option>');
-                $opt.val(name);
-                $opt.text(name);
-                $sel.append($opt);
-            });
+            Object.keys(lib)
+                .sort((a, b) => a.localeCompare(b))
+                .forEach((name) => {
+                    const $opt = $("<option></option>");
+                    $opt.val(name);
+                    $opt.text(name);
+                    $sel.append($opt);
+                });
 
             $sel.val(active);
-            $('#fgr-edit-manual-players').val(String(lib[active] || ''));
+            $("#fgr-edit-manual-players").val(String(lib[active] || ""));
 
             if (ensured.changed) this.saveSettings();
         },
@@ -119,51 +139,57 @@
         onProfileSelectChange() {
             const s = this.getSettings();
             const lib = this.getPlayerProfileLibrary(s);
-            const name = String($('#fgr-edit-profile-select').val() || '').trim();
+            const name = String(
+                $("#fgr-edit-profile-select").val() || ""
+            ).trim();
             if (!name) return;
 
-            if (!Object.hasOwn(lib, name)) lib[name] = '';
+            if (!Object.hasOwn(lib, name)) lib[name] = "";
             s.activePlayerProfileName = name;
             this.setPlayerProfileLibrary(s, lib);
             this.saveSettings();
 
-            $('#fgr-edit-manual-players').val(String(lib[name] || ''));
+            $("#fgr-edit-manual-players").val(String(lib[name] || ""));
         },
 
         createProfile() {
             const s = this.getSettings();
             const lib = this.getPlayerProfileLibrary(s);
 
-            const input = window.prompt('请输入新名单名称：', '新名单');
+            const input = window.prompt("请输入新名单名称：", "新名单");
             if (input === null) return;
 
-            const name = String(input || '').trim();
-            if (!name) return toastr.warning('名单名称不能为空');
-            if (Object.hasOwn(lib, name)) return toastr.warning('已存在同名名单');
+            const name = String(input || "").trim();
+            if (!name) return toastr.warning("名单名称不能为空");
+            if (Object.hasOwn(lib, name))
+                return toastr.warning("已存在同名名单");
 
-            lib[name] = '';
+            lib[name] = "";
             s.activePlayerProfileName = name;
             this.setPlayerProfileLibrary(s, lib);
             this.saveSettings();
             this.renderPlayerProfileSelect();
-            toastr.success('已新建名单：' + name);
+            toastr.success("已新建名单：" + name);
         },
 
         renameProfile() {
             const s = this.getSettings();
             const lib = this.getPlayerProfileLibrary(s);
-            const oldName = String($('#fgr-edit-profile-select').val() || '').trim();
-            if (!oldName) return toastr.warning('请先选择一个名单');
+            const oldName = String(
+                $("#fgr-edit-profile-select").val() || ""
+            ).trim();
+            if (!oldName) return toastr.warning("请先选择一个名单");
 
-            const input = window.prompt('请输入新名称：', oldName);
+            const input = window.prompt("请输入新名称：", oldName);
             if (input === null) return;
-            const newName = String(input || '').trim();
+            const newName = String(input || "").trim();
 
-            if (!newName) return toastr.warning('新名称不能为空');
+            if (!newName) return toastr.warning("新名称不能为空");
             if (newName === oldName) return;
-            if (Object.hasOwn(lib, newName)) return toastr.warning('已存在同名名单');
+            if (Object.hasOwn(lib, newName))
+                return toastr.warning("已存在同名名单");
 
-            lib[newName] = String(lib[oldName] || '');
+            lib[newName] = String(lib[oldName] || "");
             delete lib[oldName];
             s.activePlayerProfileName = newName;
             this.setPlayerProfileLibrary(s, lib);
@@ -175,11 +201,13 @@
         deleteProfile() {
             const s = this.getSettings();
             const lib = this.getPlayerProfileLibrary(s);
-            const name = String($('#fgr-edit-profile-select').val() || '').trim();
-            if (!name) return toastr.warning('请先选择一个名单');
+            const name = String(
+                $("#fgr-edit-profile-select").val() || ""
+            ).trim();
+            if (!name) return toastr.warning("请先选择一个名单");
 
             const names = Object.keys(lib);
-            if (names.length <= 1) return toastr.warning('至少保留一个名单');
+            if (names.length <= 1) return toastr.warning("至少保留一个名单");
 
             if (!window.confirm(`确定删除名单「${name}」吗？`)) return;
 
@@ -189,7 +217,7 @@
             this.setPlayerProfileLibrary(s, lib);
             this.saveSettings();
             this.renderPlayerProfileSelect();
-            toastr.success('已删除名单：' + name);
+            toastr.success("已删除名单：" + name);
         },
 
         useCurrentCharacterProfile() {
@@ -197,35 +225,37 @@
             const lib = this.getPlayerProfileLibrary(s);
             const charName = this.getCurrentCharacterName();
 
-            if (!charName) return toastr.warning('当前不是角色聊天，无法按角色名切换');
+            if (!charName)
+                return toastr.warning("当前不是角色聊天，无法按角色名切换");
 
             if (!Object.hasOwn(lib, charName)) {
-                lib[charName] = '';
+                lib[charName] = "";
             }
             s.activePlayerProfileName = charName;
             this.setPlayerProfileLibrary(s, lib);
             this.saveSettings();
             this.renderPlayerProfileSelect();
-            toastr.success('已切换到角色名单：' + charName);
+            toastr.success("已切换到角色名单：" + charName);
         },
 
         getCharacterScopedManualPlayers() {
             const c = SillyTavern.getContext();
             const chid = c.characterId;
-            if (typeof chid !== 'number' || chid < 0) return null;
+            if (typeof chid !== "number" || chid < 0) return null;
 
             const ch = c.characters?.[chid];
-            const v = ch?.data?.extensions?.[this.characterProfileKey]?.manualPlayers;
-            return typeof v === 'string' ? v : null;
+            const v =
+                ch?.data?.extensions?.[this.characterProfileKey]?.manualPlayers;
+            return typeof v === "string" ? v : null;
         },
 
         async saveCharacterScopedManualPlayers(value) {
             const c = SillyTavern.getContext();
             const chid = c.characterId;
-            if (typeof chid !== 'number' || chid < 0) return false;
+            if (typeof chid !== "number" || chid < 0) return false;
 
             await c.writeExtensionField(chid, this.characterProfileKey, {
-                manualPlayers: String(value || ''),
+                manualPlayers: String(value || ""),
             });
             return true;
         },
@@ -238,28 +268,40 @@
             this.saveMetadata = opts.saveMetadata || null;
             this.validateFlightMapJson = opts.validateFlightMapJson;
 
+            const storedTab = String(localStorage.getItem(LAST_TAB_STORAGE_KEY) || "").trim();
+            if (storedTab) {
+                this.lastTab = storedTab;
+            }
+
             if (globalThis.FGR_LUDO_UI?.register) {
                 globalThis.FGR_LUDO_UI.register(this);
             }
 
             this.ensureControlModal();
             if (this.ensureCellEditorModal) this.ensureCellEditorModal();
-            $(window).on('resize.fgrBoard', () => {
+            $(window).on("resize.fgrBoard", () => {
                 if (this.renderBoardCanvas) this.renderBoardCanvas();
+                if ($("#fgr-tab-card").hasClass("active")) {
+                    this.applyCardLayout(true);
+                }
             });
             this.inited = true;
         },
 
         ensureControlModal() {
-            if ($('#fgr-control-modal').length) return;
+            if ($("#fgr-control-modal").length) return;
 
-            $('body').append(`
+            $("body").append(`
 <div id="fgr-control-modal">
   <div class="fgr-card">
 
     <div class="fgr-fixed-topbar">
       <button class="menu_button fgr-icon-btn active" data-tab="map" type="button" title="地图" aria-label="地图">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M2 5L9 2L15 5L21.303 2.2987C21.5569 2.18992 21.8508 2.30749 21.9596 2.56131C21.9862 2.62355 22 2.69056 22 2.75827V19L15 22L9 19L2.69696 21.7013C2.44314 21.8101 2.14921 21.6925 2.04043 21.4387C2.01375 21.3765 2 21.3094 2 21.2417V5ZM16 19.3955L20 17.6812V5.03308L16 6.74736V19.3955ZM14 19.2639V6.73607L10 4.73607V17.2639L14 19.2639ZM8 17.2526V4.60451L4 6.31879V18.9669L8 17.2526Z"></path></svg>
+      </button>
+
+      <button class="menu_button fgr-icon-btn" data-tab="card" type="button" title="抽牌" aria-label="抽牌">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-spade-icon lucide-spade"><path d="M12 18v4"/><path d="M2 14.499a5.5 5.5 0 0 0 9.591 3.675.6.6 0 0 1 .818.001A5.5 5.5 0 0 0 22 14.5c0-2.29-1.5-4-3-5.5l-5.492-5.312a2 2 0 0 0-3-.02L5 8.999c-1.5 1.5-3 3.2-3 5.5"/></svg>
       </button>
 
       <button class="menu_button fgr-icon-btn" data-tab="edit" type="button" title="编辑" aria-label="编辑">
@@ -394,6 +436,33 @@
         </div>
       </div>
 
+      <div id="fgr-tab-card" class="fgr-tab">
+        <div class="settings_section">
+          <label>国王游戏抽牌（点击一张牌即为 user 下一轮牌面）</label>
+          <div class="fgr-map-toolbar">
+            <button id="fgr-card-shuffle" class="menu_button fgr-icon-btn" type="button" title="洗牌" aria-label="洗牌">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4C9.25144 4 6.82508 5.38626 5.38443 7.5H8V9.5H2V3.5H4V5.99936C5.82381 3.57166 8.72764 2 12 2C17.5228 2 22 6.47715 22 12H20C20 7.58172 16.4183 4 12 4ZM4 12C4 16.4183 7.58172 20 12 20C14.7486 20 17.1749 18.6137 18.6156 16.5H16V14.5H22V20.5H20V18.0006C18.1762 20.4283 15.2724 22 12 22C6.47715 22 2 17.5228 2 12H4Z"></path></svg>
+            </button>
+
+            <button id="fgr-card-reset-progress" class="menu_button fgr-icon-btn" type="button" title="重置国王回合进度" aria-label="重置国王回合进度">
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+
+            <button id="fgr-card-round-undo" class="menu_button fgr-icon-btn" type="button" title="回退上一回合" aria-label="回退上一回合">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M7.82843 11H20V13H7.82843L13.1924 18.364L11.7782 19.7782L4 12L11.7782 4.22183L13.1924 5.63604L7.82843 11Z"></path></svg>
+            </button>
+
+            <button id="fgr-card-round-redo" class="menu_button fgr-icon-btn" type="button" title="前进下一回合" aria-label="前进下一回合">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M16.1716 11H4V13H16.1716L10.8076 18.364L12.2218 19.7782L20 12L12.2218 4.22183L10.8076 5.63604L16.1716 11Z"></path></svg>
+            </button>
+          </div>
+        </div>
+
+        <div id="fgr-card-players-tip" class="fgr-map-tip"></div>
+        <div id="fgr-card-grid" class="fgr-card-grid"></div>
+        <div class="fgr-map-tip">说明：切到本页会自动洗牌；也可手动点洗牌按钮重洗。点击任意牌会翻牌并进入下一轮国王游戏。</div>
+      </div>
+
       <div id="fgr-tab-edit" class="fgr-tab">
         <div class="settings_section">
           <label>玩家名单（按角色名自动切换）</label>
@@ -429,9 +498,11 @@
       </div>
 
       <div id="fgr-tab-settings" class="fgr-tab">
-        <div class="settings_section"><label>下一回合触发词</label><input id="fgr-set-round-trigger" class="text_pole" type="text" /></div>
-        <div class="settings_section"><label>飞行棋启动词</label><input id="fgr-set-flight-start" class="text_pole" type="text" /></div>
-        <div class="settings_section"><label>飞行棋重开词</label><input id="fgr-set-flight-replay" class="text_pole" type="text" /></div>
+<div class="settings_section"><label>下一回合触发词</label><input id="fgr-set-round-trigger" class="text_pole" type="text" /></div>
+<div class="settings_section"><label>飞行棋启动词</label><input id="fgr-set-flight-start" class="text_pole" type="text" /></div>
+<div class="settings_section"><label>飞行棋重开词</label><input id="fgr-set-flight-replay" class="text_pole" type="text" /></div>
+
+<div class="settings_section"><label>国王游戏启动词</label><input id="fgr-set-king-start" class="text_pole" type="text" /></div>
 
         <div class="settings_section">
           <label>骰子数量模式</label>
@@ -475,7 +546,7 @@
 </div>
             `);
 
-            $('body').append(`
+            $("body").append(`
 <div id="fgr-director-quick-modal" style="display:none;position:fixed;inset:0;z-index:35050;background:rgba(0,0,0,.45);align-items:flex-start;justify-content:center;padding-top:120px;padding-left:16px;padding-right:16px;box-sizing:border-box;">
   <div class="fgr-director-quick-card" style="width:min(720px,95vw);max-height:calc(100vh - 140px);overflow:auto;background:var(--SmartThemeBlurTintColor,rgba(30,30,30,.96));border:1px solid var(--SmartThemeBorderColor,rgba(255,255,255,.15));border-radius:12px;padding:14px;backdrop-filter:blur(10px);">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
@@ -498,114 +569,734 @@
 </div>
             `);
 
-            $('#fgr-modal-close').on('click', () => this.close());
-            $('#fgr-control-modal').on('click', (e) => {
-                if (e.target && e.target.id === 'fgr-control-modal') this.close();
+            $("#fgr-modal-close").on("click", () => this.close());
+            $("#fgr-control-modal").on("click", (e) => {
+                if (e.target && e.target.id === "fgr-control-modal")
+                    this.close();
             });
-            $(document).on('keydown.fgrModal', (e) => {
-                if (e.key === 'Escape') {
+            $(document).on("keydown.fgrModal", (e) => {
+                if (e.key === "Escape") {
                     this.close();
                     this.closeDirectorOnlyModal();
                 }
             });
 
-            $('.fgr-icon-btn[data-tab]').on('click', (e) => this.switchTab($(e.currentTarget).data('tab')));
+            $(".fgr-icon-btn[data-tab]").on("click", (e) =>
+                this.switchTab($(e.currentTarget).data("tab"))
+            );
 
-            $('#fgr-map-add-row').on('click', () => this.addMapRow());
-            $('#fgr-map-save').on('click', () => this.saveMapFromVisual());
-            $('#fgr-map-render').on('click', () => this.renderBoardCanvas());
-            $('#fgr-map-reset-progress').on('click', () => this.resetFlightProgress());
-            $('#fgr-director-apply').on('click', async () => this.applyDirectorEdits());
-            $('#fgr-director-refresh').on('click', () => this.renderDirectorEditor());
-            $('#fgr-director-rows').on('input', '.fgr-director-pos', (e) => this.updateDirectorRowEvent(e));
-            $('#fgr-director-quick-apply').on('click', async () => this.applyDirectorEdits());
-            $('#fgr-director-quick-refresh').on('click', () => this.renderDirectorEditor('#fgr-director-quick-rows'));
-            $('#fgr-director-quick-rows').on('input', '.fgr-director-pos', (e) => this.updateDirectorRowEvent(e));
-            $('#fgr-director-quick-close').on('click', () => this.closeDirectorOnlyModal());
-            $('#fgr-director-quick-modal').on('click', (e) => {
-                if (e.target && e.target.id === 'fgr-director-quick-modal') this.closeDirectorOnlyModal();
+            $("#fgr-map-add-row").on("click", () => this.addMapRow());
+            $("#fgr-map-save").on("click", () => this.saveMapFromVisual());
+            $("#fgr-map-render").on("click", () => this.renderBoardCanvas());
+            $("#fgr-map-reset-progress").on("click", () =>
+                this.resetFlightProgress()
+            );
+            $("#fgr-director-apply").on("click", async () =>
+                this.applyDirectorEdits()
+            );
+            $("#fgr-director-refresh").on("click", () =>
+                this.renderDirectorEditor()
+            );
+            $("#fgr-director-rows").on("input", ".fgr-director-pos", (e) =>
+                this.updateDirectorRowEvent(e)
+            );
+            $("#fgr-director-quick-apply").on("click", async () =>
+                this.applyDirectorEdits()
+            );
+            $("#fgr-director-quick-refresh").on("click", () =>
+                this.renderDirectorEditor("#fgr-director-quick-rows")
+            );
+            $("#fgr-director-quick-rows").on(
+                "input",
+                ".fgr-director-pos",
+                (e) => this.updateDirectorRowEvent(e)
+            );
+            $("#fgr-director-quick-close").on("click", () =>
+                this.closeDirectorOnlyModal()
+            );
+            $("#fgr-director-quick-modal").on("click", (e) => {
+                if (e.target && e.target.id === "fgr-director-quick-modal")
+                    this.closeDirectorOnlyModal();
             });
-            $('#fgr-round-undo').on('click', async () => {
+
+            $("#fgr-card-shuffle").on("click", async () => {
+                await this.shuffleCardGrid();
+            });
+            $("#fgr-card-reset-progress").on("click", async () => {
+                await this.handleKingResetProgress();
+            });
+            $("#fgr-card-round-undo").on("click", async () => {
                 await this.handleUndoRound();
             });
-            $('#fgr-round-redo').on('click', async () => {
+            $("#fgr-card-round-redo").on("click", async () => {
                 await this.handleRedoRound();
             });
 
-            $('#fgr-map-import-icon').on('click', () => $('#fgr-map-import-file').trigger('click'));
-            $('#fgr-map-export-icon').on('click', () => this.exportByChoice());
-            $('#fgr-map-rename-icon').on('click', () => this.renameSelectedMap());
-            $('#fgr-map-delete-icon').on('click', () => this.deleteSelectedMap());
+            $("#fgr-card-grid").on("click", ".fgr-poker-card", async (e) => {
+                const $card = $(e.currentTarget);
+                await this.pickCardAndStartKingRound($card);
+            });
+            $("#fgr-card-grid").on("keydown", ".fgr-poker-card", async (e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                const $card = $(e.currentTarget);
+                await this.pickCardAndStartKingRound($card);
+            });
 
-            $('#fgr-map-import-file').on('change', (e) => this.importMapFile(e));
+            $("#fgr-king-director-close").on("click", () =>
+                this.closeKingDirectorModal()
+            );
+            $("#fgr-king-director-modal").on("click", (e) => {
+                if (e.target && e.target.id === "fgr-king-director-modal")
+                    this.closeKingDirectorModal();
+            });
+            $("#fgr-king-director-refresh").on("click", () =>
+                this.renderKingDirectorRows()
+            );
+            $("#fgr-king-director-apply").on("click", async () =>
+                this.applyKingDirectorFromModal()
+            );
 
-            $('#fgr-board-dice').on('click', async () => {
+            $("#fgr-round-undo").on("click", async () => {
+                await this.handleUndoRound();
+            });
+            $("#fgr-round-redo").on("click", async () => {
+                await this.handleRedoRound();
+            });
+
+            $("#fgr-map-import-icon").on("click", () =>
+                $("#fgr-map-import-file").trigger("click")
+            );
+            $("#fgr-map-export-icon").on("click", () => this.exportByChoice());
+            $("#fgr-map-rename-icon").on("click", () =>
+                this.renameSelectedMap()
+            );
+            $("#fgr-map-delete-icon").on("click", () =>
+                this.deleteSelectedMap()
+            );
+
+            $("#fgr-map-import-file").on("change", (e) =>
+                this.importMapFile(e)
+            );
+
+            $("#fgr-board-dice").on("click", async () => {
                 await this.handleRollClick();
             });
 
-            $('#fgr-board-dice').on('keydown', async (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+            $("#fgr-board-dice").on("keydown", async (e) => {
+                if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     await this.handleRollClick();
                 }
             });
 
-            $('#fgr-map-anim-speed').on('change', () => this.quickSaveAnimSpeed());
+            $("#fgr-map-anim-speed").on("change", () =>
+                this.quickSaveAnimSpeed()
+            );
 
-            $('#fgr-map-select').on('change', (e) => {
-                const name = String($(e.target).val() || '');
+            $("#fgr-map-select").on("change", (e) => {
+                const name = String($(e.target).val() || "");
                 this.switchActiveMap(name, true);
             });
 
-            $('#fgr-map-win-position').on('input', () => this.renderBoardCanvas());
-            $('#fgr-map-rows').on('input', '.fgr-at, .fgr-move, .fgr-text', () => this.renderBoardCanvas());
-            $('#fgr-board-canvas').on('click', (e) => this.onCanvasClick(e));
+            $("#fgr-map-win-position").on("input", () =>
+                this.renderBoardCanvas()
+            );
+            $("#fgr-map-rows").on(
+                "input",
+                ".fgr-at, .fgr-move, .fgr-text",
+                () => this.renderBoardCanvas()
+            );
+            $("#fgr-board-canvas").on("click", (e) => this.onCanvasClick(e));
 
-            $('#fgr-set-dice-count-mode, #fgr-set-dice-fixed-count, #fgr-set-dice-auto-switch-player-count')
-                .on('change input', () => this.quickSaveDiceSettings());
+            $(
+                "#fgr-set-dice-count-mode, #fgr-set-dice-fixed-count, #fgr-set-dice-auto-switch-player-count"
+            ).on("change input", () => this.quickSaveDiceSettings());
 
-            $('#fgr-edit-save').on('click', async () => {
+            $("#fgr-edit-save").on("click", async () => {
                 await this.saveEditTab();
             });
-            $('#fgr-edit-profile-select').on('change', () => this.onProfileSelectChange());
-            $('#fgr-edit-profile-create').on('click', () => this.createProfile());
-            $('#fgr-edit-profile-rename').on('click', () => this.renameProfile());
-            $('#fgr-edit-profile-delete').on('click', () => this.deleteProfile());
-            $('#fgr-edit-profile-use-char').on('click', () => this.useCurrentCharacterProfile());
-            $('#fgr-set-save').on('click', () => this.saveSettingsTab());
-            $('#fgr-set-validate-map').on('click', () => this.validateMapInTab());
+            $("#fgr-edit-profile-select").on("change", () =>
+                this.onProfileSelectChange()
+            );
+            $("#fgr-edit-profile-create").on("click", () =>
+                this.createProfile()
+            );
+            $("#fgr-edit-profile-rename").on("click", () =>
+                this.renameProfile()
+            );
+            $("#fgr-edit-profile-delete").on("click", () =>
+                this.deleteProfile()
+            );
+            $("#fgr-edit-profile-use-char").on("click", () =>
+                this.useCurrentCharacterProfile()
+            );
+            $("#fgr-set-save").on("click", () => this.saveSettingsTab());
+            $("#fgr-set-validate-map").on("click", () =>
+                this.validateMapInTab()
+            );
         },
 
         quickSaveDiceSettings() {
             const s = this.getSettings();
-            s.diceCountMode = this.normalizeDiceMode($('#fgr-set-dice-count-mode').val());
+            s.diceCountMode = this.normalizeDiceMode(
+                $("#fgr-set-dice-count-mode").val()
+            );
 
             {
-                const fixed = Math.trunc(Number($('#fgr-set-dice-fixed-count').val()));
-                s.diceFixedCount = Number.isFinite(fixed) ? Math.min(2, Math.max(1, fixed)) : 1;
+                const fixed = Math.trunc(
+                    Number($("#fgr-set-dice-fixed-count").val())
+                );
+                s.diceFixedCount = Number.isFinite(fixed)
+                    ? Math.min(2, Math.max(1, fixed))
+                    : 1;
             }
 
             {
-                const threshold = Math.trunc(Number($('#fgr-set-dice-auto-switch-player-count').val()));
-                s.diceAutoSwitchPlayerCount = Number.isFinite(threshold) ? Math.max(2, threshold) : 6;
+                const threshold = Math.trunc(
+                    Number($("#fgr-set-dice-auto-switch-player-count").val())
+                );
+                s.diceAutoSwitchPlayerCount = Number.isFinite(threshold)
+                    ? Math.max(2, threshold)
+                    : 6;
             }
 
             this.saveSettings();
         },
 
         switchTab(tab) {
-            $('.fgr-icon-btn[data-tab]').removeClass('active');
-            $('.fgr-icon-btn[data-tab="' + tab + '"]').addClass('active');
-            $('.fgr-tab').removeClass('active');
-            $('#fgr-tab-' + tab).addClass('active');
-            if (tab === 'map') this.renderBoardCanvas();
+            const t = String(tab || "map").trim() || "map";
+            this.lastTab = t;
+            localStorage.setItem(LAST_TAB_STORAGE_KEY, t);
+
+            $(".fgr-icon-btn[data-tab]").removeClass("active");
+            $('.fgr-icon-btn[data-tab="' + t + '"]').addClass("active");
+            $(".fgr-tab").removeClass("active");
+            $("#fgr-tab-" + t).addClass("active");
+
+            if (t === "map") this.renderBoardCanvas();
+            if (t === "card") this.renderCardDrawTab({ autoShuffle: false, forceRebuild: true });
+        },
+
+        getKingCardPoolByCount(count) {
+            const n = Math.max(2, Math.trunc(Number(count) || 2));
+            const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+            return ["王", ...ranks.slice(0, Math.max(1, n - 1))].slice(0, n);
+        },
+
+        async getResolvedPlayersForCard() {
+            if (globalThis.FGR_ACTIONS?.getResolvedPlayersForUI) {
+                const r = await globalThis.FGR_ACTIONS.getResolvedPlayersForUI();
+                if (r && r.ok && Array.isArray(r.players)) return r.players;
+            }
+            const st = this.getChatState();
+            if (Array.isArray(st?.players) && st.players.length) return st.players;
+            return [];
+        },
+
+        waitMs(ms) {
+            return new Promise((resolve) => setTimeout(resolve, ms));
+        },
+
+        shuffleArray(list = []) {
+            const arr = list.slice();
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        },
+
+        getCardLayout(count) {
+            const n = Math.max(1, Math.trunc(Number(count) || 1));
+            const $grid = $("#fgr-card-grid");
+            const gridWidth = Math.max(280, Math.trunc($grid.innerWidth() || 0) || 280);
+            const cardW = 92;
+            const cardH = 132;
+            const gap = 12;
+            const cols = Math.max(1, Math.floor((gridWidth + gap) / (cardW + gap)));
+            const rows = Math.ceil(n / cols);
+            const slots = [];
+
+            for (let i = 0; i < n; i++) {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                slots.push({
+                    left: col * (cardW + gap),
+                    top: row * (cardH + gap),
+                });
+            }
+
+            const height = rows * cardH + Math.max(0, rows - 1) * gap;
+            return {
+                cardW,
+                cardH,
+                gap,
+                cols,
+                rows,
+                width: gridWidth,
+                height,
+                slots,
+            };
+        },
+
+        applyCardLayout(instant = false) {
+            const $grid = $("#fgr-card-grid");
+            const $cards = $grid.find(".fgr-poker-card");
+            const layout = this.getCardLayout($cards.length);
+            this.cardLayout = layout;
+
+            $grid.css("height", `${layout.height}px`);
+
+            $cards.each((idx, el) => {
+                const slot = layout.slots[idx];
+                const $el = $(el);
+
+                if (instant) $el.addClass("no-transition");
+                $el.css({
+                    left: `${slot.left}px`,
+                    top: `${slot.top}px`,
+                    transform: "rotate(0deg)",
+                    zIndex: `${10 + idx}`,
+                });
+
+                if (instant) {
+                    requestAnimationFrame(() => {
+                        $el.removeClass("no-transition");
+                    });
+                }
+            });
+        },
+
+        waitMs(ms) {
+            return new Promise((resolve) => setTimeout(resolve, ms));
+        },
+
+        shuffleArray(list = []) {
+            const arr = list.slice();
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        },
+
+        randomSuit() {
+            const suits = ["S", "H", "D", "C"];
+            return suits[Math.floor(Math.random() * suits.length)];
+        },
+
+        getCardArtPath(card, suit) {
+            if (card === "王") {
+                return `${EXT_PATH}/assets/cards/JOKER.svg`;
+            }
+            return `${EXT_PATH}/assets/cards/${card}${suit}.svg`;
+        },
+
+        makeCardVisuals(cards = []) {
+            return cards.map((card) => {
+                const suit = card === "王" ? "JOKER" : this.randomSuit();
+                const art = card === "王" ? this.getCardArtPath(card, suit) : this.getCardArtPath(card, suit);
+                return { card, suit, art };
+            });
+        },
+
+        applyCardVisualToElement($el, visual) {
+            const card = String(visual.card || "");
+            const suit = String(visual.suit || "");
+            const art = String(visual.art || "");
+
+            $el.attr("data-card", card);
+            $el.attr("data-suit", suit);
+
+            if (art) {
+                $el.find(".fgr-poker-art").attr("src", art);
+            } else {
+                $el.find(".fgr-poker-art").attr("src", "");
+            }
+        },
+
+        ensureCardSfx() {
+            if (!this.cardSfx.shuffle) {
+                this.cardSfx.shuffle = new Audio(`${EXT_PATH}/assets/sfx/shuffle.mp3`);
+                this.cardSfx.shuffle.volume = 0.6;
+            }
+            if (!this.cardSfx.flip) {
+                this.cardSfx.flip = new Audio(`${EXT_PATH}/assets/sfx/flip.mp3`);
+                this.cardSfx.flip.volume = 0.75;
+            }
+            if (!this.cardSfx.deal) {
+                this.cardSfx.deal = new Audio(`${EXT_PATH}/assets/sfx/deal.mp3`);
+                this.cardSfx.deal.volume = 0.65;
+            }
+        },
+
+        playCardSfx(name) {
+            try {
+                this.ensureCardSfx();
+
+                if (name === "flip") {
+                    const a = new Audio(`${EXT_PATH}/assets/sfx/flip.mp3`);
+                    a.volume = 0.75;
+                    a.play().catch(() => {});
+                    return;
+                }
+
+                const audio = this.cardSfx[name];
+                if (!audio) return;
+                audio.pause();
+                audio.currentTime = 0;
+                audio.play().catch(() => {});
+            } catch (_e) {}
+        },
+
+        getCardLayout(count) {
+            const n = Math.max(1, Math.trunc(Number(count) || 1));
+            const $grid = $("#fgr-card-grid");
+            const gridWidth = Math.max(280, Math.trunc($grid.innerWidth() || 0) || 280);
+            const cardW = 92;
+            const cardH = 132;
+            const gap = 12;
+            const cols = Math.max(1, Math.floor((gridWidth + gap) / (cardW + gap)));
+            const rows = Math.ceil(n / cols);
+            const slots = [];
+
+            for (let i = 0; i < n; i++) {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                slots.push({
+                    left: col * (cardW + gap),
+                    top: row * (cardH + gap),
+                });
+            }
+
+            const height = rows * cardH + Math.max(0, rows - 1) * gap;
+            return {
+                cardW,
+                cardH,
+                gap,
+                cols,
+                rows,
+                width: gridWidth,
+                height,
+                slots,
+            };
+        },
+
+        applyCardLayout(instant = false) {
+            const $grid = $("#fgr-card-grid");
+            const $cards = $grid.find(".fgr-poker-card");
+            const layout = this.getCardLayout($cards.length);
+            this.cardLayout = layout;
+
+            $grid.css("height", `${layout.height}px`);
+
+            $cards.each((idx, el) => {
+                const slot = layout.slots[idx];
+                const $el = $(el);
+
+                if (instant) $el.addClass("no-transition");
+                $el.css({
+                    left: `${slot.left}px`,
+                    top: `${slot.top}px`,
+                    transform: "rotate(0deg)",
+                    zIndex: `${10 + idx}`,
+                });
+
+                if (instant) {
+                    requestAnimationFrame(() => {
+                        $el.removeClass("no-transition");
+                    });
+                }
+            });
+        },
+
+        async runCardCollectShuffleDealAnimation() {
+            const $grid = $("#fgr-card-grid");
+            const $cards = $grid.find(".fgr-poker-card");
+            if (!$cards.length) return;
+
+            const layout = this.cardLayout || this.getCardLayout($cards.length);
+            const centerLeft = Math.max(0, (layout.width - layout.cardW) / 2);
+            const centerTop = Math.max(0, (layout.height - layout.cardH) / 2);
+
+            $cards.addClass("disabled").addClass("collecting");
+
+            await this.waitMs(20);
+
+            $cards.each((idx, el) => {
+                const $el = $(el);
+                const offsetX = (idx % 6 - 2.5) * 3;
+                const offsetY = (Math.floor(idx / 6) % 3 - 1) * 3;
+                const rot = (idx % 2 ? 1 : -1) * (4 + (idx % 4));
+
+                $el.css({
+                    left: `${centerLeft + offsetX}px`,
+                    top: `${centerTop + offsetY}px`,
+                    transform: `rotate(${rot}deg)`,
+                    zIndex: `${200 + idx}`,
+                });
+            });
+
+            await this.waitMs(650);
+
+            $cards.removeClass("collecting").addClass("stack-shuffling");
+            this.playCardSfx("shuffle");
+            await this.waitMs(1100);
+            $cards.removeClass("stack-shuffling");
+
+            this.currentCardPool = this.shuffleArray(this.currentCardPool);
+            this.currentCardVisuals = this.makeCardVisuals(this.currentCardPool);
+
+            $cards.each((idx, el) => {
+                const visual = this.currentCardVisuals[idx];
+                const $el = $(el);
+                this.applyCardVisualToElement($el, visual);
+                $el.removeClass("flipped");
+            });
+
+            $cards.addClass("dealing");
+
+            for (let i = 0; i < $cards.length; i++) {
+                const el = $cards[i];
+                const slot = layout.slots[i];
+                const $el = $(el);
+
+                $el.css({ zIndex: `${300 + i}` });
+                this.playCardSfx("deal");
+                await this.waitMs(90);
+                $el.css({
+                    left: `${slot.left}px`,
+                    top: `${slot.top}px`,
+                    transform: "rotate(0deg)",
+                    zIndex: `${20 + i}`,
+                });
+            }
+
+            await this.waitMs(420);
+            $cards.removeClass("dealing");
+            $cards.removeClass("disabled");
+        },
+
+        async renderCardDrawTab(options = {}) {
+            if (this.cardBusy) return;
+            this.cardBusy = true;
+
+            try {
+                const autoShuffle = !!options.autoShuffle;
+                const forceRebuild = !!options.forceRebuild;
+
+                let needBuild = forceRebuild;
+                const $grid = $("#fgr-card-grid");
+                if (!$grid.find(".fgr-poker-card").length) needBuild = true;
+
+                const players = await this.getResolvedPlayersForCard();
+                const cards = this.getKingCardPoolByCount(players.length || 2);
+
+                const tip = players.length
+                    ? `当前玩家：${players.join("、")}（共${players.length}人）`
+                    : "当前未识别到玩家，默认展示2张牌。请先在聊天里确保玩家名单可识别。";
+                $("#fgr-card-players-tip").text(tip);
+
+                if (needBuild) {
+                    this.currentCardPool = cards.slice();
+                    this.currentCardVisuals = this.makeCardVisuals(this.currentCardPool);
+
+                    $grid.empty();
+                    this.currentCardVisuals.forEach((visual) => {
+                        const $card = $(`
+<div class="fgr-poker-card" data-card="${visual.card}" role="button" tabindex="0" aria-label="扑克牌">
+  <div class="fgr-poker-inner">
+    <div class="fgr-poker-face fgr-poker-back">
+      <span>♠</span>
+    </div>
+    <div class="fgr-poker-face fgr-poker-front">
+      <img class="fgr-poker-art" src="" alt="card" />
+    </div>
+  </div>
+</div>
+                        `);
+                        this.applyCardVisualToElement($card, visual);
+                        $grid.append($card);
+                    });
+
+                    this.applyCardLayout(true);
+                    await this.waitMs(20);
+                } else {
+                    this.applyCardLayout(true);
+                }
+
+                if (autoShuffle) {
+                    await this.runCardCollectShuffleDealAnimation();
+                }
+            } finally {
+                this.cardBusy = false;
+            }
+        },
+
+        async shuffleCardGrid() {
+            if (this.cardBusy) return;
+            this.cardBusy = true;
+            try {
+                if (!$("#fgr-card-grid .fgr-poker-card").length) {
+                    await this.renderCardDrawTab({ autoShuffle: false, forceRebuild: true });
+                    return;
+                }
+                this.applyCardLayout(true);
+                await this.waitMs(20);
+                await this.runCardCollectShuffleDealAnimation();
+            } finally {
+                this.cardBusy = false;
+            }
+        },
+
+        async pickCardAndStartKingRound($card) {
+            if (this.cardBusy) return;
+            if (!$card || !$card.length) return;
+
+            this.cardBusy = true;
+
+            const card = String($card.attr("data-card") || "").trim();
+            if (!card) {
+                this.cardBusy = false;
+                return;
+            }
+
+            const $allCards = $("#fgr-card-grid .fgr-poker-card");
+
+            $allCards.addClass("disabled");
+            this.playCardSfx("flip");
+            $card.addClass("flipped");
+
+            await this.waitMs(560);
+
+            if (globalThis.FGR_ACTIONS?.setKingPresetUserCard) {
+                const presetRes = await globalThis.FGR_ACTIONS.setKingPresetUserCard(card);
+                if (!presetRes?.ok) {
+                    toastr.error("设置 user 预设牌失败");
+                    $allCards.removeClass("disabled");
+                    this.cardBusy = false;
+                    return;
+                }
+            } else {
+                toastr.error("缺少 setKingPresetUserCard 动作");
+                $allCards.removeClass("disabled");
+                this.cardBusy = false;
+                return;
+            }
+
+            if (globalThis.FGR_ACTIONS?.rollKingByClick) {
+                const rollRes = await globalThis.FGR_ACTIONS.rollKingByClick();
+                if (!rollRes?.ok) {
+                    toastr.error(rollRes?.error || "进入下一轮失败");
+                    $allCards.removeClass("disabled");
+                    this.cardBusy = false;
+                    return;
+                }
+                toastr.success(`你抽到 ${card}，已进入国王游戏下一回合`);
+            } else {
+                toastr.error("缺少 rollKingByClick 动作");
+                $allCards.removeClass("disabled");
+                this.cardBusy = false;
+                return;
+            }
+
+            this.cardBusy = false;
+        },
+
+        closeKingDirectorModal() {
+            $("#fgr-king-director-modal").hide();
+        },
+
+        renderKingDirectorRows() {
+            const packet = this.kingDirectorPacket || this.getChatState()?.pendingPacket || null;
+            const $rows = $("#fgr-king-director-rows");
+            $rows.empty();
+
+            if (!packet || packet.gameType !== "king") {
+                $rows.append(`<tr><td colspan="2">当前无国王回合可编辑</td></tr>`);
+                return;
+            }
+
+            const players = Array.isArray(packet.players) ? packet.players : [];
+            const cards = this.getKingCardPoolByCount(players.length || 2);
+
+            const presetMap = new Map();
+            const oldAssign = Array.isArray(packet?.king?.assignments) ? packet.king.assignments : [];
+            oldAssign.forEach((a) => {
+                const p = String(a?.player || "").trim();
+                const c = String(a?.card || "").trim();
+                if (p && c) presetMap.set(c, p);
+            });
+
+            cards.forEach((card) => {
+                const $tr = $("<tr></tr>");
+                const $tdCard = $(`<td>${card}</td>`);
+                const $tdSel = $(`<td></td>`);
+                const $sel = $(`<select class="text_pole fgr-king-player-select" data-card="${card}"></select>`);
+
+                $sel.append(`<option value="">请选择玩家</option>`);
+                players.forEach((p) => {
+                    $sel.append(`<option value="${p}">${p}</option>`);
+                });
+
+                if (presetMap.has(card)) {
+                    $sel.val(presetMap.get(card));
+                }
+
+                $tdSel.append($sel);
+                $tr.append($tdCard, $tdSel);
+                $rows.append($tr);
+            });
+        },
+
+        async applyKingDirectorFromModal() {
+            const packet = this.kingDirectorPacket || this.getChatState()?.pendingPacket || null;
+            if (!packet || packet.gameType !== "king") {
+                return toastr.warning("当前没有国王回合可应用");
+            }
+
+            const assignments = [];
+            const usedPlayers = new Set();
+
+            $("#fgr-king-director-rows .fgr-king-player-select").each((_, el) => {
+                const $el = $(el);
+                const card = String($el.data("card") || "").trim();
+                const player = String($el.val() || "").trim();
+                if (card) assignments.push({ card, player });
+            });
+
+            if (!assignments.length) {
+                return toastr.warning("请先指定牌面对应玩家");
+            }
+
+            for (const a of assignments) {
+                if (!a.player) return toastr.warning(`牌 ${a.card} 未选择玩家`);
+                if (usedPlayers.has(a.player)) {
+                    return toastr.warning(`玩家 ${a.player} 被重复分配，请保证一人一张牌`);
+                }
+                usedPlayers.add(a.player);
+            }
+
+            if (globalThis.FGR_ACTIONS?.applyKingDirectorEdits) {
+                const res = await globalThis.FGR_ACTIONS.applyKingDirectorEdits(assignments);
+                if (!res?.ok) {
+                    return toastr.error(res?.error || "应用国王导演编辑失败");
+                }
+                toastr.success("国王导演编辑已应用");
+                this.closeKingDirectorModal();
+                return;
+            }
+
+            toastr.error("缺少 applyKingDirectorEdits 动作");
         },
 
         loadFromSettings() {
             const s = this.getSettings();
             const lib = this.getMapLibrary(s);
 
-            const activeItem = this.findMapByName(lib, lib.active) || lib.items[0];
+            const activeItem =
+                this.findMapByName(lib, lib.active) || lib.items[0];
             s.flightMapJson = JSON.stringify(activeItem.map, null, 2);
 
             this.renderMapSelector(s, lib);
@@ -613,78 +1304,95 @@
 
             this.renderPlayerProfileSelect();
 
-            $('#fgr-edit-user-aliases').val(s.userAliases);
-            $('#fgr-edit-user-canonical-name').val(s.userCanonicalName);
-            $('#fgr-edit-name-blacklist').val(s.nameBlacklist);
+            $("#fgr-edit-user-aliases").val(s.userAliases);
+            $("#fgr-edit-user-canonical-name").val(s.userCanonicalName);
+            $("#fgr-edit-name-blacklist").val(s.nameBlacklist);
 
-            $('#fgr-set-round-trigger').val(s.roundTriggerWords);
-            $('#fgr-set-flight-start').val(s.flightStartKeywords);
-            $('#fgr-set-flight-replay').val(s.flightReplayKeywords);
+            $("#fgr-set-round-trigger").val(s.roundTriggerWords);
+            $("#fgr-set-flight-start").val(s.flightStartKeywords);
+            $("#fgr-set-flight-replay").val(s.flightReplayKeywords);
+            $("#fgr-set-king-start").val(
+                s.kingStartKeywords || "国王游戏,玩国王游戏,开始玩国王游戏"
+            );
 
-            const diceMode = this.normalizeDiceMode(s.diceCountMode || 'auto');
-            $('#fgr-set-dice-count-mode').val(diceMode);
-            $('#fgr-set-dice-fixed-count').val(Number.isFinite(Number(s.diceFixedCount)) ? Math.min(2, Math.max(1, Number(s.diceFixedCount))) : 1);
-            $('#fgr-set-dice-auto-switch-player-count').val(Number.isFinite(Number(s.diceAutoSwitchPlayerCount)) ? Math.max(2, Number(s.diceAutoSwitchPlayerCount)) : 6);
+            const diceMode = this.normalizeDiceMode(s.diceCountMode || "auto");
+            $("#fgr-set-dice-count-mode").val(diceMode);
+            $("#fgr-set-dice-fixed-count").val(
+                Number.isFinite(Number(s.diceFixedCount))
+                    ? Math.min(2, Math.max(1, Number(s.diceFixedCount)))
+                    : 1
+            );
+            $("#fgr-set-dice-auto-switch-player-count").val(
+                Number.isFinite(Number(s.diceAutoSwitchPlayerCount))
+                    ? Math.max(2, Number(s.diceAutoSwitchPlayerCount))
+                    : 6
+            );
 
-            $('#fgr-map-anim-speed').val(String(Number(s.clickAnimationMs) || 2200));
-            $('#fgr-set-fairness-mode').val(s.fairnessMode);
+            $("#fgr-map-anim-speed").val(
+                String(Number(s.clickAnimationMs) || 2200)
+            );
+            $("#fgr-set-fairness-mode").val(s.fairnessMode);
 
-            $('#fgr-set-flight-map-json').val(s.flightMapJson);
+            $("#fgr-set-flight-map-json").val(s.flightMapJson);
 
             this.setMapLibrary(s, lib);
             this.saveSettings();
         },
 
         open(tab) {
-            const targetTab = tab || 'map';
+            const remembered = String(this.lastTab || localStorage.getItem(LAST_TAB_STORAGE_KEY) || "map").trim() || "map";
+            const targetTab = remembered;
+
             try {
                 this.loadFromSettings();
                 this.switchTab(targetTab);
                 this.renderDirectorEditor();
-                $('#fgr-control-modal').css('display', 'flex');
+                $("#fgr-control-modal").css("display", "flex");
             } catch (err) {
-                console.error('[fair-game-referee] 打开面板失败', err);
-                toastr.error('打开面板失败：' + (err && err.message ? err.message : err));
+                console.error("[fair-game-referee] 打开面板失败", err);
+                toastr.error(
+                    "打开面板失败：" + (err && err.message ? err.message : err)
+                );
             }
         },
 
         openDirectorPanel() {
             try {
-                this.open('map');
-                if (typeof this.renderDirectorEditor === 'function') {
+                this.open("map");
+                if (typeof this.renderDirectorEditor === "function") {
                     this.renderDirectorEditor();
                 }
-                const el = document.getElementById('fgr-director-section');
+                const el = document.getElementById("fgr-director-section");
                 if (el && el.scrollIntoView) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    el.scrollIntoView({ behavior: "smooth", block: "start" });
                 }
             } catch (err) {
-                console.error('[fair-game-referee] 打开导演编辑失败', err);
+                console.error("[fair-game-referee] 打开导演编辑失败", err);
             }
         },
 
         close() {
-            $('#fgr-control-modal').hide();
+            $("#fgr-control-modal").hide();
         },
 
         openDirectorOnlyModal() {
             try {
-                if (typeof this.renderDirectorEditor === 'function') {
-                    this.renderDirectorEditor('#fgr-director-quick-rows');
+                if (typeof this.renderDirectorEditor === "function") {
+                    this.renderDirectorEditor("#fgr-director-quick-rows");
                 }
-                const $modal = $('#fgr-director-quick-modal');
-                $modal.css('display', 'flex');
+                const $modal = $("#fgr-director-quick-modal");
+                $modal.css("display", "flex");
                 requestAnimationFrame(() => {
-                    $modal.addClass('show');
+                    $modal.addClass("show");
                 });
             } catch (err) {
-                console.error('[fair-game-referee] 打开导演独立面板失败', err);
+                console.error("[fair-game-referee] 打开导演独立面板失败", err);
             }
         },
 
         closeDirectorOnlyModal() {
-            const $modal = $('#fgr-director-quick-modal');
-            $modal.removeClass('show');
+            const $modal = $("#fgr-director-quick-modal");
+            $modal.removeClass("show");
             setTimeout(() => {
                 $modal.hide();
             }, 180);
@@ -694,51 +1402,77 @@
             const s = this.getSettings();
             const lib = this.getPlayerProfileLibrary(s);
 
-            let activeName = String($('#fgr-edit-profile-select').val() || s.activePlayerProfileName || '').trim();
-            if (!activeName) activeName = '默认名单';
+            let activeName = String(
+                $("#fgr-edit-profile-select").val() ||
+                    s.activePlayerProfileName ||
+                    ""
+            ).trim();
+            if (!activeName) activeName = "默认名单";
 
             if (!Object.hasOwn(lib, activeName)) {
-                lib[activeName] = '';
+                lib[activeName] = "";
             }
 
-            lib[activeName] = String($('#fgr-edit-manual-players').val() || '');
+            lib[activeName] = String($("#fgr-edit-manual-players").val() || "");
             s.activePlayerProfileName = activeName;
             this.setPlayerProfileLibrary(s, lib);
 
             s.manualPlayers = lib[activeName];
 
-            s.userAliases = String($('#fgr-edit-user-aliases').val() || '');
-            s.userCanonicalName = String($('#fgr-edit-user-canonical-name').val() || 'user').trim() || 'user';
-            s.nameBlacklist = String($('#fgr-edit-name-blacklist').val() || '');
+            s.userAliases = String($("#fgr-edit-user-aliases").val() || "");
+            s.userCanonicalName =
+                String(
+                    $("#fgr-edit-user-canonical-name").val() || "user"
+                ).trim() || "user";
+            s.nameBlacklist = String($("#fgr-edit-name-blacklist").val() || "");
 
             this.saveSettings();
             this.renderPlayerProfileSelect();
-            toastr.success('编辑配置已保存（已保存到当前玩家名单）');
+            toastr.success("编辑配置已保存（已保存到当前玩家名单）");
         },
 
         saveSettingsTab() {
             const s = this.getSettings();
 
-            s.roundTriggerWords = String($('#fgr-set-round-trigger').val() || '');
-            s.flightStartKeywords = String($('#fgr-set-flight-start').val() || '');
-            s.flightReplayKeywords = String($('#fgr-set-flight-replay').val() || '');
+            s.roundTriggerWords = String(
+                $("#fgr-set-round-trigger").val() || ""
+            );
+            s.flightStartKeywords = String(
+                $("#fgr-set-flight-start").val() || ""
+            );
+            s.flightReplayKeywords = String(
+                $("#fgr-set-flight-replay").val() || ""
+            );
+            s.kingStartKeywords = String($("#fgr-set-king-start").val() || "");
 
-            s.diceCountMode = this.normalizeDiceMode($('#fgr-set-dice-count-mode').val());
+            s.diceCountMode = this.normalizeDiceMode(
+                $("#fgr-set-dice-count-mode").val()
+            );
 
             {
-                const fixed = Math.trunc(Number($('#fgr-set-dice-fixed-count').val()));
-                s.diceFixedCount = Number.isFinite(fixed) ? Math.min(2, Math.max(1, fixed)) : 1;
+                const fixed = Math.trunc(
+                    Number($("#fgr-set-dice-fixed-count").val())
+                );
+                s.diceFixedCount = Number.isFinite(fixed)
+                    ? Math.min(2, Math.max(1, fixed))
+                    : 1;
             }
 
             {
-                const threshold = Math.trunc(Number($('#fgr-set-dice-auto-switch-player-count').val()));
-                s.diceAutoSwitchPlayerCount = Number.isFinite(threshold) ? Math.max(2, threshold) : 6;
+                const threshold = Math.trunc(
+                    Number($("#fgr-set-dice-auto-switch-player-count").val())
+                );
+                s.diceAutoSwitchPlayerCount = Number.isFinite(threshold)
+                    ? Math.max(2, threshold)
+                    : 6;
             }
 
-            s.fairnessMode = String($('#fgr-set-fairness-mode').val() || 'strict');
+            s.fairnessMode = String(
+                $("#fgr-set-fairness-mode").val() || "strict"
+            );
 
             if (!this.validateMapInTab()) return;
-            s.flightMapJson = String($('#fgr-set-flight-map-json').val() || '');
+            s.flightMapJson = String($("#fgr-set-flight-map-json").val() || "");
 
             let parsedMap = null;
             try {
@@ -746,36 +1480,42 @@
             } catch (_e) {
                 parsedMap = null;
             }
-            if (!parsedMap || typeof parsedMap !== 'object') {
-                return toastr.error('地图JSON解析失败');
+            if (!parsedMap || typeof parsedMap !== "object") {
+                return toastr.error("地图JSON解析失败");
             }
 
             const safeMap = this.getSafeMapFromRaw(parsedMap);
             if (!safeMap) {
-                return toastr.error('地图结构无效，无法保存到可选地图');
+                return toastr.error("地图结构无效，无法保存到可选地图");
             }
 
             s.flightMapJson = JSON.stringify(safeMap, null, 2);
-            $('#fgr-set-flight-map-json').val(s.flightMapJson);
+            $("#fgr-set-flight-map-json").val(s.flightMapJson);
 
             const lib = this.getMapLibrary(s);
 
-            const currentName = String($('#fgr-map-select').val() || '').trim()
-                || String(lib.active || '').trim()
-                || '新地图';
+            const currentName =
+                String($("#fgr-map-select").val() || "").trim() ||
+                String(lib.active || "").trim() ||
+                "新地图";
 
-            const inputName = window.prompt('请输入新地图名称（将新增，不覆盖）：', currentName + '-副本');
+            const inputName = window.prompt(
+                "请输入新地图名称（将新增，不覆盖）：",
+                currentName + "-副本"
+            );
             if (inputName === null) {
                 this.saveSettings();
-                return toastr.info('已保存设置，但未新增到可选地图（你取消了命名）');
+                return toastr.info(
+                    "已保存设置，但未新增到可选地图（你取消了命名）"
+                );
             }
 
-            const baseName = String(inputName || '').trim();
+            const baseName = String(inputName || "").trim();
             if (!baseName) {
-                return toastr.warning('地图名称不能为空');
+                return toastr.warning("地图名称不能为空");
             }
 
-            const used = new Set(lib.items.map(i => i.name));
+            const used = new Set(lib.items.map((i) => i.name));
             const finalName = this.dedupeName(baseName, used);
 
             lib.items.push({ name: finalName, map: safeMap });
@@ -788,7 +1528,63 @@
 
             this.saveSettings();
             toastr.success(`设置已保存，并新增地图：${finalName}`);
-        }
+        },
+        async handleUndoRound() {
+            if (!globalThis.FGR_ACTIONS?.undoRound) {
+                toastr.error("缺少 undoRound 动作");
+                return;
+            }
+
+            const res = await globalThis.FGR_ACTIONS.undoRound();
+            if (!res?.ok) {
+                toastr.warning(res?.error || "没有可回退的上一回合");
+                return;
+            }
+
+            toastr.success(`已回退到第${res.round}回合`);
+            if ($("#fgr-tab-map").hasClass("active")) this.renderBoardCanvas();
+            if ($("#fgr-tab-card").hasClass("active")) {
+                await this.renderCardDrawTab({ autoShuffle: false });
+            }
+        },
+
+        async handleRedoRound() {
+            if (!globalThis.FGR_ACTIONS?.redoRound) {
+                toastr.error("缺少 redoRound 动作");
+                return;
+            }
+
+            const res = await globalThis.FGR_ACTIONS.redoRound();
+            if (!res?.ok) {
+                toastr.warning(res?.error || "没有可前进的下一回合");
+                return;
+            }
+
+            toastr.success(`已前进到第${res.round}回合`);
+            if ($("#fgr-tab-map").hasClass("active")) this.renderBoardCanvas();
+            if ($("#fgr-tab-card").hasClass("active")) {
+                await this.renderCardDrawTab({ autoShuffle: false });
+            }
+        },
+
+        async handleKingResetProgress() {
+            if (!globalThis.FGR_ACTIONS?.resetKingProgress) {
+                toastr.error("缺少 resetKingProgress 动作");
+                return;
+            }
+
+            const ok = window.confirm("确定重置国王游戏回合进度吗？会清空当前国王回合包与回合数。");
+            if (!ok) return;
+
+            const res = await globalThis.FGR_ACTIONS.resetKingProgress();
+            if (!res?.ok) {
+                toastr.error(res?.error || "重置失败");
+                return;
+            }
+
+            toastr.success("国王回合进度已重置");
+            await this.renderCardDrawTab({ autoShuffle: true, forceRebuild: true });
+        },
     };
 
     globalThis.FGR_UI = UI;
