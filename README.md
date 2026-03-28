@@ -194,9 +194,6 @@
 - Vector Playing Cards (CC0) by Byron Knoll
   http://code.google.com/p/vector-playing-cards/
 
-- Joker/Trumps (CC-BY 3.0) by Nora Shishi, rh0, usr_share, Kumpu
-  https://opengameart.org/content/dice-trumps
-
 ---
 
 ## 免责声明
