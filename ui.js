@@ -1,6 +1,6 @@
 (() => {
-    const EXT_PATH = "/scripts/extensions/third-party/fair-game-referee";
-    const LAST_TAB_STORAGE_KEY = "fgr_last_tab";
+    const EXT_PATH = '/scripts/extensions/third-party/fair-game-referee';
+    const LAST_TAB_STORAGE_KEY = 'fgr_last_tab';
     const UI = {
         inited: false,
         getSettings: null,
@@ -9,7 +9,7 @@
         saveMetadata: null,
         validateFlightMapJson: null,
 
-        characterProfileKey: "fair-game-referee_character_profile",
+        characterProfileKey: 'fair-game-referee_character_profile',
 
         selectedPos: null,
         boardCols: 10,
@@ -28,39 +28,44 @@
         cardLayout: null,
         cardSfx: { shuffle: null, flip: null, deal: null },
         kingDirectorPacket: null,
-        lastTab: "map",
+        lastTab: 'map',
 
         normalizeDiceMode(raw) {
-            const x = String(raw || "")
+            const x = String(raw || '')
                 .trim()
                 .toLowerCase();
-            if (["fixed", "固定", "固定模式", "manual"].includes(x))
-                return "fixed";
-            return "auto";
+            if (['fixed', '固定', '固定模式', 'manual'].includes(x)) return 'fixed';
+            return 'auto';
         },
 
-        getCurrentCharacterName() {
-            const c = SillyTavern.getContext();
-            const chid = c.characterId;
-            if (typeof chid !== "number" || chid < 0) return "";
-            return String(c.characters?.[chid]?.name || "").trim();
-        },
+getCurrentCharacterName() {
+    const c = SillyTavern.getContext();
+
+    const chid = Number(c.characterId);
+    if (Number.isInteger(chid) && chid >= 0) {
+        const byCard = String(c.characters?.[chid]?.name || '').trim();
+        if (byCard) return byCard;
+    }
+
+    const byName2 = String(c.name2 || '').trim();
+    if (byName2) return byName2;
+
+    return '';
+},
 
         getPlayerProfileLibrary(settings) {
             let lib = {};
             try {
-                lib = JSON.parse(
-                    String(settings.playerProfileLibraryJson || "{}")
-                );
+                lib = JSON.parse(String(settings.playerProfileLibraryJson || '{}'));
             } catch (_e) {
                 lib = {};
             }
 
-            if (!lib || typeof lib !== "object" || Array.isArray(lib)) lib = {};
+            if (!lib || typeof lib !== 'object' || Array.isArray(lib)) lib = {};
 
             for (const k of Object.keys(lib)) {
-                if (typeof lib[k] !== "string") {
-                    lib[k] = String(lib[k] ?? "");
+                if (typeof lib[k] !== 'string') {
+                    lib[k] = String(lib[k] ?? '');
                 }
             }
 
@@ -71,6 +76,194 @@
             settings.playerProfileLibraryJson = JSON.stringify(lib);
         },
 
+getNameArrayMap(raw) {
+    let obj = {};
+    try {
+        obj = JSON.parse(String(raw || '{}'));
+    } catch (_e) {
+        obj = {};
+    }
+
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) obj = {};
+
+    for (const k of Object.keys(obj)) {
+        if (!Array.isArray(obj[k])) {
+            obj[k] = [];
+            continue;
+        }
+
+        const out = [];
+        const seen = new Set();
+        for (const v of obj[k]) {
+            const n = String(v || '').trim();
+            const key = n.toLowerCase();
+            if (!key) continue;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push(n);
+        }
+        obj[k] = out;
+    }
+
+    return obj;
+},
+
+getPlayerPoolByProfile(settings) {
+    return this.getNameArrayMap(settings.playerPoolByProfileJson);
+},
+
+setPlayerPoolByProfile(settings, map) {
+    settings.playerPoolByProfileJson = JSON.stringify(map);
+},
+
+getPlayerSelectedByProfile(settings) {
+    return this.getNameArrayMap(settings.playerSelectedByProfileJson);
+},
+
+setPlayerSelectedByProfile(settings, map) {
+    settings.playerSelectedByProfileJson = JSON.stringify(map);
+},
+
+ensureProfilePlayerData(settings, profileName) {
+    const name = String(profileName || '').trim();
+    if (!name) return { pool: [], selected: [] };
+
+    const poolMap = this.getPlayerPoolByProfile(settings);
+    const selectedMap = this.getPlayerSelectedByProfile(settings);
+
+    if (!Array.isArray(poolMap[name])) poolMap[name] = [];
+    if (!Array.isArray(selectedMap[name])) selectedMap[name] = [];
+
+    const pool = poolMap[name];
+    const poolKeySet = new Set(pool.map((x) => String(x).toLowerCase()));
+    const selected = selectedMap[name].filter((x) => poolKeySet.has(String(x).toLowerCase()));
+
+    selectedMap[name] = selected;
+
+    this.setPlayerPoolByProfile(settings, poolMap);
+    this.setPlayerSelectedByProfile(settings, selectedMap);
+
+    return { pool, selected };
+},
+
+renderPlayerMultiSelect() {
+    const s = this.getSettings();
+    const active = String(s.activePlayerProfileName || '').trim();
+    const ensured = this.ensureProfilePlayerData(s, active);
+    const pool = Array.isArray(ensured.pool) ? ensured.pool : [];
+    const selectedSet = new Set((ensured.selected || []).map((x) => String(x).toLowerCase()));
+
+    const $sel = $('#fgr-edit-player-select');
+    if (!$sel.length) return;
+
+    // 关键：先彻底清空旧状态，避免跨名单残留“已选N项”
+    $sel.val([]);
+    $sel.empty();
+
+    if (!active) {
+        $sel.prop('disabled', true);
+        $sel.append(`<option value="" disabled>请先选择名单</option>`);
+        return;
+    }
+
+    if (!pool.length) {
+        $sel.prop('disabled', true);
+        $sel.append(`<option value="" disabled>当前名单暂无玩家，请先在上方输入后点 +</option>`);
+        return;
+    }
+
+    $sel.prop('disabled', false);
+
+    pool.forEach((name) => {
+        const key = String(name).toLowerCase();
+        const isSel = selectedSet.has(key);
+
+        const $opt = $('<option></option>');
+        $opt.val(name);
+        $opt.text(name);
+        if (isSel) $opt.prop('selected', true);
+        $sel.append($opt);
+    });
+},
+
+onPlayerMultiSelectChange() {
+    const s = this.getSettings();
+    const active = String(s.activePlayerProfileName || '').trim();
+    if (!active) return;
+
+    const selectedValues = $('#fgr-edit-player-select').val();
+    const selected = Array.isArray(selectedValues)
+        ? selectedValues.map((x) => String(x || '').trim()).filter(Boolean)
+        : [];
+
+    const selectedMap = this.getPlayerSelectedByProfile(s);
+    selectedMap[active] = selected;
+    this.setPlayerSelectedByProfile(s, selectedMap);
+    this.saveSettings();
+},
+
+addPlayerToPool() {
+    const s = this.getSettings();
+    const active = String(s.activePlayerProfileName || '').trim();
+    if (!active) return toastr.warning('请先选择名单');
+
+    const input = String($('#fgr-edit-player-input').val() || '').trim();
+    if (!input) return toastr.warning('请输入玩家名');
+
+    const poolMap = this.getPlayerPoolByProfile(s);
+    const selectedMap = this.getPlayerSelectedByProfile(s);
+
+    if (!Array.isArray(poolMap[active])) poolMap[active] = [];
+    if (!Array.isArray(selectedMap[active])) selectedMap[active] = [];
+
+    const exists = poolMap[active].some((x) => String(x).toLowerCase() === input.toLowerCase());
+    if (exists) return toastr.info('玩家已存在');
+
+    poolMap[active].push(input);
+    selectedMap[active].push(input);
+
+    this.setPlayerPoolByProfile(s, poolMap);
+    this.setPlayerSelectedByProfile(s, selectedMap);
+    this.saveSettings();
+
+    $('#fgr-edit-player-input').val('');
+    this.renderPlayerMultiSelect();
+    toastr.success('已添加玩家：' + input);
+},
+
+removeSelectedPlayersFromPool() {
+    const s = this.getSettings();
+    const active = String(s.activePlayerProfileName || '').trim();
+    if (!active) return toastr.warning('请先选择名单');
+
+    const selectedValues = $('#fgr-edit-player-select').val();
+    const targets = Array.isArray(selectedValues)
+        ? selectedValues.map((x) => String(x || '').trim()).filter(Boolean)
+        : [];
+    if (!targets.length) return toastr.warning('请先在下拉框里选中要移除的玩家');
+
+    const targetSet = new Set(targets.map((x) => x.toLowerCase()));
+
+    const poolMap = this.getPlayerPoolByProfile(s);
+    const selectedMap = this.getPlayerSelectedByProfile(s);
+
+    const oldPool = Array.isArray(poolMap[active]) ? poolMap[active] : [];
+    const newPool = oldPool.filter((x) => !targetSet.has(String(x).toLowerCase()));
+
+    const oldSelected = Array.isArray(selectedMap[active]) ? selectedMap[active] : [];
+    const newSelected = oldSelected.filter((x) => !targetSet.has(String(x).toLowerCase()));
+
+    poolMap[active] = newPool;
+    selectedMap[active] = newSelected;
+
+    this.setPlayerPoolByProfile(s, poolMap);
+    this.setPlayerSelectedByProfile(s, selectedMap);
+    this.saveSettings();
+
+    this.renderPlayerMultiSelect();
+    toastr.success('已移除选中玩家');
+},
+
         ensureCharacterNamedProfile(settings) {
             const lib = this.getPlayerProfileLibrary(settings);
             const charName = this.getCurrentCharacterName();
@@ -78,7 +271,7 @@
 
             if (charName) {
                 if (!Object.hasOwn(lib, charName)) {
-                    lib[charName] = "";
+                    lib[charName] = '';
                     changed = true;
                 }
                 if (settings.activePlayerProfileName !== charName) {
@@ -87,11 +280,9 @@
                 }
             } else {
                 const fallback =
-                    String(
-                        settings.activePlayerProfileName || "默认名单"
-                    ).trim() || "默认名单";
+                    String(settings.activePlayerProfileName || '默认名单').trim() || '默认名单';
                 if (!Object.hasOwn(lib, fallback)) {
-                    lib[fallback] = "";
+                    lib[fallback] = '';
                     changed = true;
                 }
                 if (settings.activePlayerProfileName !== fallback) {
@@ -107,155 +298,176 @@
             return { lib, changed };
         },
 
-        renderPlayerProfileSelect() {
-            const s = this.getSettings();
-            const ensured = this.ensureCharacterNamedProfile(s);
-            const lib = ensured.lib;
-            const active = String(s.activePlayerProfileName || "").trim();
+renderPlayerProfileSelect() {
+    const s = this.getSettings();
+    const ensured = this.ensureCharacterNamedProfile(s);
+    const lib = ensured.lib;
+    const active = String(s.activePlayerProfileName || '').trim();
 
-            const $sel = $("#fgr-edit-profile-select");
-            if (!$sel.length) return;
+    const $sel = $('#fgr-edit-profile-select');
+    if (!$sel.length) return;
 
-            $sel.empty();
-            Object.keys(lib)
-                .sort((a, b) => a.localeCompare(b))
-                .forEach((name) => {
-                    const $opt = $("<option></option>");
-                    $opt.val(name);
-                    $opt.text(name);
-                    $sel.append($opt);
-                });
+    $sel.empty();
+    Object.keys(lib)
+        .sort((a, b) => a.localeCompare(b))
+        .forEach((name) => {
+            const $opt = $('<option></option>');
+            $opt.val(name);
+            $opt.text(name);
+            $sel.append($opt);
+        });
 
-            $sel.val(active);
-            $("#fgr-edit-manual-players").val(String(lib[active] || ""));
+    $sel.val(active);
+    this.renderPlayerMultiSelect();
 
-            if (ensured.changed) this.saveSettings();
-        },
+    if (ensured.changed) this.saveSettings();
+},
 
-        refreshPlayerProfileUI() {
-            this.renderPlayerProfileSelect();
-        },
+refreshPlayerProfileUI() {
+    this.renderPlayerProfileSelect();
+    this.renderPlayerMultiSelect();
+},
 
-        onProfileSelectChange() {
-            const s = this.getSettings();
-            const lib = this.getPlayerProfileLibrary(s);
-            const name = String(
-                $("#fgr-edit-profile-select").val() || ""
-            ).trim();
-            if (!name) return;
+onProfileSelectChange() {
+    const s = this.getSettings();
+    const lib = this.getPlayerProfileLibrary(s);
+    const name = String($('#fgr-edit-profile-select').val() || '').trim();
+    if (!name) return;
 
-            if (!Object.hasOwn(lib, name)) lib[name] = "";
-            s.activePlayerProfileName = name;
-            this.setPlayerProfileLibrary(s, lib);
-            this.saveSettings();
+    if (!Object.hasOwn(lib, name)) lib[name] = '';
+    s.activePlayerProfileName = name;
+    this.setPlayerProfileLibrary(s, lib);
+    this.saveSettings();
 
-            $("#fgr-edit-manual-players").val(String(lib[name] || ""));
-        },
+    this.renderPlayerMultiSelect();
+$('#fgr-edit-player-input').val('');
+},
 
-        createProfile() {
-            const s = this.getSettings();
-            const lib = this.getPlayerProfileLibrary(s);
+createProfile() {
+    const s = this.getSettings();
+    const lib = this.getPlayerProfileLibrary(s);
 
-            const input = window.prompt("请输入新名单名称：", "新名单");
-            if (input === null) return;
+    const input = window.prompt('请输入新名单名称：', '新名单');
+    if (input === null) return;
 
-            const name = String(input || "").trim();
-            if (!name) return toastr.warning("名单名称不能为空");
-            if (Object.hasOwn(lib, name))
-                return toastr.warning("已存在同名名单");
+    const name = String(input || '').trim();
+    if (!name) return toastr.warning('名单名称不能为空');
+    if (Object.hasOwn(lib, name)) return toastr.warning('已存在同名名单');
 
-            lib[name] = "";
-            s.activePlayerProfileName = name;
-            this.setPlayerProfileLibrary(s, lib);
-            this.saveSettings();
-            this.renderPlayerProfileSelect();
-            toastr.success("已新建名单：" + name);
-        },
+    lib[name] = '';
+    s.activePlayerProfileName = name;
+    this.setPlayerProfileLibrary(s, lib);
 
-        renameProfile() {
-            const s = this.getSettings();
-            const lib = this.getPlayerProfileLibrary(s);
-            const oldName = String(
-                $("#fgr-edit-profile-select").val() || ""
-            ).trim();
-            if (!oldName) return toastr.warning("请先选择一个名单");
+    const poolMap = this.getPlayerPoolByProfile(s);
+    const selectedMap = this.getPlayerSelectedByProfile(s);
+    if (!Array.isArray(poolMap[name])) poolMap[name] = [];
+    if (!Array.isArray(selectedMap[name])) selectedMap[name] = [];
+    this.setPlayerPoolByProfile(s, poolMap);
+    this.setPlayerSelectedByProfile(s, selectedMap);
 
-            const input = window.prompt("请输入新名称：", oldName);
-            if (input === null) return;
-            const newName = String(input || "").trim();
+    this.saveSettings();
+    this.renderPlayerProfileSelect();
+    toastr.success('已新建名单：' + name);
+},
 
-            if (!newName) return toastr.warning("新名称不能为空");
-            if (newName === oldName) return;
-            if (Object.hasOwn(lib, newName))
-                return toastr.warning("已存在同名名单");
+renameProfile() {
+    const s = this.getSettings();
+    const lib = this.getPlayerProfileLibrary(s);
+    const oldName = String($('#fgr-edit-profile-select').val() || '').trim();
+    if (!oldName) return toastr.warning('请先选择一个名单');
 
-            lib[newName] = String(lib[oldName] || "");
-            delete lib[oldName];
-            s.activePlayerProfileName = newName;
-            this.setPlayerProfileLibrary(s, lib);
-            this.saveSettings();
-            this.renderPlayerProfileSelect();
-            toastr.success(`已重命名：${oldName} → ${newName}`);
-        },
+    const input = window.prompt('请输入新名称：', oldName);
+    if (input === null) return;
+    const newName = String(input || '').trim();
 
-        deleteProfile() {
-            const s = this.getSettings();
-            const lib = this.getPlayerProfileLibrary(s);
-            const name = String(
-                $("#fgr-edit-profile-select").val() || ""
-            ).trim();
-            if (!name) return toastr.warning("请先选择一个名单");
+    if (!newName) return toastr.warning('新名称不能为空');
+    if (newName === oldName) return;
+    if (Object.hasOwn(lib, newName)) return toastr.warning('已存在同名名单');
 
-            const names = Object.keys(lib);
-            if (names.length <= 1) return toastr.warning("至少保留一个名单");
+    lib[newName] = String(lib[oldName] || '');
+    delete lib[oldName];
+    s.activePlayerProfileName = newName;
+    this.setPlayerProfileLibrary(s, lib);
 
-            if (!window.confirm(`确定删除名单「${name}」吗？`)) return;
+    const poolMap = this.getPlayerPoolByProfile(s);
+    const selectedMap = this.getPlayerSelectedByProfile(s);
 
-            delete lib[name];
-            const nextName = Object.keys(lib)[0];
-            s.activePlayerProfileName = nextName;
-            this.setPlayerProfileLibrary(s, lib);
-            this.saveSettings();
-            this.renderPlayerProfileSelect();
-            toastr.success("已删除名单：" + name);
-        },
+    poolMap[newName] = Array.isArray(poolMap[oldName]) ? poolMap[oldName] : [];
+    selectedMap[newName] = Array.isArray(selectedMap[oldName]) ? selectedMap[oldName] : [];
+    delete poolMap[oldName];
+    delete selectedMap[oldName];
+
+    this.setPlayerPoolByProfile(s, poolMap);
+    this.setPlayerSelectedByProfile(s, selectedMap);
+
+    this.saveSettings();
+    this.renderPlayerProfileSelect();
+    toastr.success(`已重命名：${oldName} → ${newName}`);
+},
+
+deleteProfile() {
+    const s = this.getSettings();
+    const lib = this.getPlayerProfileLibrary(s);
+    const name = String($('#fgr-edit-profile-select').val() || '').trim();
+    if (!name) return toastr.warning('请先选择一个名单');
+
+    const names = Object.keys(lib);
+    if (names.length <= 1) return toastr.warning('至少保留一个名单');
+
+    if (!window.confirm(`确定删除名单「${name}」吗？`)) return;
+
+    delete lib[name];
+
+    const poolMap = this.getPlayerPoolByProfile(s);
+    const selectedMap = this.getPlayerSelectedByProfile(s);
+    delete poolMap[name];
+    delete selectedMap[name];
+
+    const nextName = Object.keys(lib)[0];
+    s.activePlayerProfileName = nextName;
+    this.setPlayerProfileLibrary(s, lib);
+    this.setPlayerPoolByProfile(s, poolMap);
+    this.setPlayerSelectedByProfile(s, selectedMap);
+
+    this.saveSettings();
+    this.renderPlayerProfileSelect();
+    toastr.success('已删除名单：' + name);
+},
 
         useCurrentCharacterProfile() {
             const s = this.getSettings();
             const lib = this.getPlayerProfileLibrary(s);
             const charName = this.getCurrentCharacterName();
 
-            if (!charName)
-                return toastr.warning("当前不是角色聊天，无法按角色名切换");
+            if (!charName) return toastr.warning('当前不是角色聊天，无法按角色名切换');
 
             if (!Object.hasOwn(lib, charName)) {
-                lib[charName] = "";
+                lib[charName] = '';
             }
             s.activePlayerProfileName = charName;
             this.setPlayerProfileLibrary(s, lib);
             this.saveSettings();
             this.renderPlayerProfileSelect();
-            toastr.success("已切换到角色名单：" + charName);
+            toastr.success('已切换到角色名单：' + charName);
         },
 
         getCharacterScopedManualPlayers() {
             const c = SillyTavern.getContext();
             const chid = c.characterId;
-            if (typeof chid !== "number" || chid < 0) return null;
+            if (typeof chid !== 'number' || chid < 0) return null;
 
             const ch = c.characters?.[chid];
-            const v =
-                ch?.data?.extensions?.[this.characterProfileKey]?.manualPlayers;
-            return typeof v === "string" ? v : null;
+            const v = ch?.data?.extensions?.[this.characterProfileKey]?.manualPlayers;
+            return typeof v === 'string' ? v : null;
         },
 
         async saveCharacterScopedManualPlayers(value) {
             const c = SillyTavern.getContext();
             const chid = c.characterId;
-            if (typeof chid !== "number" || chid < 0) return false;
+            if (typeof chid !== 'number' || chid < 0) return false;
 
             await c.writeExtensionField(chid, this.characterProfileKey, {
-                manualPlayers: String(value || ""),
+                manualPlayers: String(value || ''),
             });
             return true;
         },
@@ -268,7 +480,7 @@
             this.saveMetadata = opts.saveMetadata || null;
             this.validateFlightMapJson = opts.validateFlightMapJson;
 
-            const storedTab = String(localStorage.getItem(LAST_TAB_STORAGE_KEY) || "").trim();
+            const storedTab = String(localStorage.getItem(LAST_TAB_STORAGE_KEY) || '').trim();
             if (storedTab) {
                 this.lastTab = storedTab;
             }
@@ -277,11 +489,11 @@
                 globalThis.FGR_LUDO_UI.register(this);
             }
 
-            this.ensureControlModal();
-            if (this.ensureCellEditorModal) this.ensureCellEditorModal();
-            $(window).on("resize.fgrBoard", () => {
+this.ensureControlModal();
+if (this.ensureCellEditorModal) this.ensureCellEditorModal();
+            $(window).on('resize.fgrBoard', () => {
                 if (this.renderBoardCanvas) this.renderBoardCanvas();
-                if ($("#fgr-tab-card").hasClass("active")) {
+                if ($('#fgr-tab-card').hasClass('active')) {
                     this.applyCardLayout(true);
                 }
             });
@@ -289,9 +501,9 @@
         },
 
         ensureControlModal() {
-            if ($("#fgr-control-modal").length) return;
+            if ($('#fgr-control-modal').length) return;
 
-            $("body").append(`
+            $('body').append(`
 <div id="fgr-control-modal">
   <div class="fgr-card">
 
@@ -491,7 +703,23 @@
           </div>
         </div>
 
-        <div class="settings_section"><label>手动玩家名单</label><textarea id="fgr-edit-manual-players" class="text_pole" rows="3"></textarea></div>
+        <div class="settings_section">
+          <label>玩家池（添加可选玩家）</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input id="fgr-edit-player-input" class="text_pole" type="text" placeholder="输入玩家名，如：Alice" style="flex:1;" />
+            <button id="fgr-edit-player-add" class="menu_button fgr-icon-btn" type="button" title="添加玩家" aria-label="添加玩家">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M11 11V5H13V11H19V13H13V19H11V13H5V11H11Z"></path></svg>
+            </button>
+            <button id="fgr-edit-player-remove" class="menu_button fgr-icon-btn" type="button" title="移除已选玩家" aria-label="移除已选玩家">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M5 11H19V13H5V11Z"></path></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="settings_section">
+          <label>本轮参赛玩家（可多选）</label>
+          <select id="fgr-edit-player-select" class="text_pole" multiple size="8" style="width:100%;"></select>
+        </div>
         <div class="settings_section"><label>User别名</label><input id="fgr-edit-user-aliases" class="text_pole" type="text" /></div>
         <div class="settings_section"><label>User统一名</label><input id="fgr-edit-user-canonical-name" class="text_pole" type="text" /></div>
         <div class="settings_section"><label>黑名单</label><input id="fgr-edit-name-blacklist" class="text_pole" type="text" /></div>
@@ -546,7 +774,7 @@
 </div>
             `);
 
-            $("body").append(`
+            $('body').append(`
 <div id="fgr-director-quick-modal" style="display:none;position:fixed;inset:0;z-index:35050;background:rgba(0,0,0,.45);align-items:flex-start;justify-content:center;padding-top:120px;padding-left:16px;padding-right:16px;box-sizing:border-box;">
   <div class="fgr-director-quick-card" style="width:min(720px,95vw);max-height:calc(100vh - 140px);overflow:auto;background:var(--SmartThemeBlurTintColor,rgba(30,30,30,.96));border:1px solid var(--SmartThemeBorderColor,rgba(255,255,255,.15));border-radius:12px;padding:14px;backdrop-filter:blur(10px);">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
@@ -569,192 +797,154 @@
 </div>
             `);
 
-            $("#fgr-modal-close").on("click", () => this.close());
-            $("#fgr-control-modal").on("click", (e) => {
-                if (e.target && e.target.id === "fgr-control-modal")
-                    this.close();
+            $('#fgr-modal-close').on('click', () => this.close());
+            $('#fgr-control-modal').on('click', (e) => {
+                if (e.target && e.target.id === 'fgr-control-modal') this.close();
             });
-            $(document).on("keydown.fgrModal", (e) => {
-                if (e.key === "Escape") {
+            $(document).on('keydown.fgrModal', (e) => {
+                if (e.key === 'Escape') {
                     this.close();
                     this.closeDirectorOnlyModal();
                 }
             });
 
-            $(".fgr-icon-btn[data-tab]").on("click", (e) =>
-                this.switchTab($(e.currentTarget).data("tab"))
+            $('.fgr-icon-btn[data-tab]').on('click', (e) =>
+                this.switchTab($(e.currentTarget).data('tab'))
             );
 
-            $("#fgr-map-add-row").on("click", () => this.addMapRow());
-            $("#fgr-map-save").on("click", () => this.saveMapFromVisual());
-            $("#fgr-map-render").on("click", () => this.renderBoardCanvas());
-            $("#fgr-map-reset-progress").on("click", () =>
-                this.resetFlightProgress()
-            );
-            $("#fgr-director-apply").on("click", async () =>
-                this.applyDirectorEdits()
-            );
-            $("#fgr-director-refresh").on("click", () =>
-                this.renderDirectorEditor()
-            );
-            $("#fgr-director-rows").on("input", ".fgr-director-pos", (e) =>
+            $('#fgr-map-add-row').on('click', () => this.addMapRow());
+            $('#fgr-map-save').on('click', () => this.saveMapFromVisual());
+            $('#fgr-map-render').on('click', () => this.renderBoardCanvas());
+            $('#fgr-map-reset-progress').on('click', () => this.resetFlightProgress());
+            $('#fgr-director-apply').on('click', async () => this.applyDirectorEdits());
+            $('#fgr-director-refresh').on('click', () => this.renderDirectorEditor());
+            $('#fgr-director-rows').on('input', '.fgr-director-pos', (e) =>
                 this.updateDirectorRowEvent(e)
             );
-            $("#fgr-director-quick-apply").on("click", async () =>
-                this.applyDirectorEdits()
+            $('#fgr-director-quick-apply').on('click', async () => this.applyDirectorEdits());
+            $('#fgr-director-quick-refresh').on('click', () =>
+                this.renderDirectorEditor('#fgr-director-quick-rows')
             );
-            $("#fgr-director-quick-refresh").on("click", () =>
-                this.renderDirectorEditor("#fgr-director-quick-rows")
+            $('#fgr-director-quick-rows').on('input', '.fgr-director-pos', (e) =>
+                this.updateDirectorRowEvent(e)
             );
-            $("#fgr-director-quick-rows").on(
-                "input",
-                ".fgr-director-pos",
-                (e) => this.updateDirectorRowEvent(e)
-            );
-            $("#fgr-director-quick-close").on("click", () =>
-                this.closeDirectorOnlyModal()
-            );
-            $("#fgr-director-quick-modal").on("click", (e) => {
-                if (e.target && e.target.id === "fgr-director-quick-modal")
+            $('#fgr-director-quick-close').on('click', () => this.closeDirectorOnlyModal());
+            $('#fgr-director-quick-modal').on('click', (e) => {
+                if (e.target && e.target.id === 'fgr-director-quick-modal')
                     this.closeDirectorOnlyModal();
             });
 
-            $("#fgr-card-shuffle").on("click", async () => {
+            $('#fgr-card-shuffle').on('click', async () => {
                 await this.shuffleCardGrid();
             });
-            $("#fgr-card-reset-progress").on("click", async () => {
+            $('#fgr-card-reset-progress').on('click', async () => {
                 await this.handleKingResetProgress();
             });
-            $("#fgr-card-round-undo").on("click", async () => {
+            $('#fgr-card-round-undo').on('click', async () => {
                 await this.handleUndoRound();
             });
-            $("#fgr-card-round-redo").on("click", async () => {
+            $('#fgr-card-round-redo').on('click', async () => {
                 await this.handleRedoRound();
             });
 
-            $("#fgr-card-grid").on("click", ".fgr-poker-card", async (e) => {
+            $('#fgr-card-grid').on('click', '.fgr-poker-card', async (e) => {
                 const $card = $(e.currentTarget);
                 await this.pickCardAndStartKingRound($card);
             });
-            $("#fgr-card-grid").on("keydown", ".fgr-poker-card", async (e) => {
-                if (e.key !== "Enter" && e.key !== " ") return;
+            $('#fgr-card-grid').on('keydown', '.fgr-poker-card', async (e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
                 e.preventDefault();
                 const $card = $(e.currentTarget);
                 await this.pickCardAndStartKingRound($card);
             });
 
-            $("#fgr-king-director-close").on("click", () =>
-                this.closeKingDirectorModal()
-            );
-            $("#fgr-king-director-modal").on("click", (e) => {
-                if (e.target && e.target.id === "fgr-king-director-modal")
+            $('#fgr-king-director-close').on('click', () => this.closeKingDirectorModal());
+            $('#fgr-king-director-modal').on('click', (e) => {
+                if (e.target && e.target.id === 'fgr-king-director-modal')
                     this.closeKingDirectorModal();
             });
-            $("#fgr-king-director-refresh").on("click", () =>
-                this.renderKingDirectorRows()
-            );
-            $("#fgr-king-director-apply").on("click", async () =>
+            $('#fgr-king-director-refresh').on('click', () => this.renderKingDirectorRows());
+            $('#fgr-king-director-apply').on('click', async () =>
                 this.applyKingDirectorFromModal()
             );
 
-            $("#fgr-round-undo").on("click", async () => {
+            $('#fgr-round-undo').on('click', async () => {
                 await this.handleUndoRound();
             });
-            $("#fgr-round-redo").on("click", async () => {
+            $('#fgr-round-redo').on('click', async () => {
                 await this.handleRedoRound();
             });
 
-            $("#fgr-map-import-icon").on("click", () =>
-                $("#fgr-map-import-file").trigger("click")
-            );
-            $("#fgr-map-export-icon").on("click", () => this.exportByChoice());
-            $("#fgr-map-rename-icon").on("click", () =>
-                this.renameSelectedMap()
-            );
-            $("#fgr-map-delete-icon").on("click", () =>
-                this.deleteSelectedMap()
-            );
+            $('#fgr-map-import-icon').on('click', () => $('#fgr-map-import-file').trigger('click'));
+            $('#fgr-map-export-icon').on('click', () => this.exportByChoice());
+            $('#fgr-map-rename-icon').on('click', () => this.renameSelectedMap());
+            $('#fgr-map-delete-icon').on('click', () => this.deleteSelectedMap());
 
-            $("#fgr-map-import-file").on("change", (e) =>
-                this.importMapFile(e)
-            );
+            $('#fgr-map-import-file').on('change', (e) => this.importMapFile(e));
 
-            $("#fgr-board-dice").on("click", async () => {
+            $('#fgr-board-dice').on('click', async () => {
                 await this.handleRollClick();
             });
 
-            $("#fgr-board-dice").on("keydown", async (e) => {
-                if (e.key === "Enter" || e.key === " ") {
+            $('#fgr-board-dice').on('keydown', async (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     await this.handleRollClick();
                 }
             });
 
-            $("#fgr-map-anim-speed").on("change", () =>
-                this.quickSaveAnimSpeed()
-            );
+            $('#fgr-map-anim-speed').on('change', () => this.quickSaveAnimSpeed());
 
-            $("#fgr-map-select").on("change", (e) => {
-                const name = String($(e.target).val() || "");
+            $('#fgr-map-select').on('change', (e) => {
+                const name = String($(e.target).val() || '');
                 this.switchActiveMap(name, true);
             });
 
-            $("#fgr-map-win-position").on("input", () =>
+            $('#fgr-map-win-position').on('input', () => this.renderBoardCanvas());
+            $('#fgr-map-rows').on('input', '.fgr-at, .fgr-move, .fgr-text', () =>
                 this.renderBoardCanvas()
             );
-            $("#fgr-map-rows").on(
-                "input",
-                ".fgr-at, .fgr-move, .fgr-text",
-                () => this.renderBoardCanvas()
-            );
-            $("#fgr-board-canvas").on("click", (e) => this.onCanvasClick(e));
+            $('#fgr-board-canvas').on('click', (e) => this.onCanvasClick(e));
 
             $(
-                "#fgr-set-dice-count-mode, #fgr-set-dice-fixed-count, #fgr-set-dice-auto-switch-player-count"
-            ).on("change input", () => this.quickSaveDiceSettings());
+                '#fgr-set-dice-count-mode, #fgr-set-dice-fixed-count, #fgr-set-dice-auto-switch-player-count'
+            ).on('change input', () => this.quickSaveDiceSettings());
 
-            $("#fgr-edit-save").on("click", async () => {
+            $('#fgr-edit-save').on('click', async () => {
                 await this.saveEditTab();
             });
-            $("#fgr-edit-profile-select").on("change", () =>
-                this.onProfileSelectChange()
-            );
-            $("#fgr-edit-profile-create").on("click", () =>
-                this.createProfile()
-            );
-            $("#fgr-edit-profile-rename").on("click", () =>
-                this.renameProfile()
-            );
-            $("#fgr-edit-profile-delete").on("click", () =>
-                this.deleteProfile()
-            );
-            $("#fgr-edit-profile-use-char").on("click", () =>
-                this.useCurrentCharacterProfile()
-            );
-            $("#fgr-set-save").on("click", () => this.saveSettingsTab());
-            $("#fgr-set-validate-map").on("click", () =>
-                this.validateMapInTab()
-            );
+            $('#fgr-edit-profile-select').on('change', () => this.onProfileSelectChange());
+            $('#fgr-edit-profile-create').on('click', () => this.createProfile());
+            $('#fgr-edit-profile-rename').on('click', () => this.renameProfile());
+            $('#fgr-edit-profile-delete').on('click', () => this.deleteProfile());
+            $('#fgr-edit-profile-use-char').on('click', () => this.useCurrentCharacterProfile());
+
+            $('#fgr-edit-player-add').on('click', () => this.addPlayerToPool());
+            $('#fgr-edit-player-remove').on('click', () => this.removeSelectedPlayersFromPool());
+            $('#fgr-edit-player-select').on('change', () => this.onPlayerMultiSelectChange());
+            $('#fgr-edit-player-input').on('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.addPlayerToPool();
+                }
+            });
+
+            $('#fgr-set-save').on('click', () => this.saveSettingsTab());
+            $('#fgr-set-validate-map').on('click', () => this.validateMapInTab());
         },
 
         quickSaveDiceSettings() {
             const s = this.getSettings();
-            s.diceCountMode = this.normalizeDiceMode(
-                $("#fgr-set-dice-count-mode").val()
-            );
+            s.diceCountMode = this.normalizeDiceMode($('#fgr-set-dice-count-mode').val());
 
             {
-                const fixed = Math.trunc(
-                    Number($("#fgr-set-dice-fixed-count").val())
-                );
-                s.diceFixedCount = Number.isFinite(fixed)
-                    ? Math.min(2, Math.max(1, fixed))
-                    : 1;
+                const fixed = Math.trunc(Number($('#fgr-set-dice-fixed-count').val()));
+                s.diceFixedCount = Number.isFinite(fixed) ? Math.min(2, Math.max(1, fixed)) : 1;
             }
 
             {
                 const threshold = Math.trunc(
-                    Number($("#fgr-set-dice-auto-switch-player-count").val())
+                    Number($('#fgr-set-dice-auto-switch-player-count').val())
                 );
                 s.diceAutoSwitchPlayerCount = Number.isFinite(threshold)
                     ? Math.max(2, threshold)
@@ -765,23 +955,23 @@
         },
 
         switchTab(tab) {
-            const t = String(tab || "map").trim() || "map";
+            const t = String(tab || 'map').trim() || 'map';
             this.lastTab = t;
             localStorage.setItem(LAST_TAB_STORAGE_KEY, t);
 
-            $(".fgr-icon-btn[data-tab]").removeClass("active");
-            $('.fgr-icon-btn[data-tab="' + t + '"]').addClass("active");
-            $(".fgr-tab").removeClass("active");
-            $("#fgr-tab-" + t).addClass("active");
+            $('.fgr-icon-btn[data-tab]').removeClass('active');
+            $('.fgr-icon-btn[data-tab="' + t + '"]').addClass('active');
+            $('.fgr-tab').removeClass('active');
+            $('#fgr-tab-' + t).addClass('active');
 
-            if (t === "map") this.renderBoardCanvas();
-            if (t === "card") this.renderCardDrawTab({ autoShuffle: false, forceRebuild: true });
+            if (t === 'map') this.renderBoardCanvas();
+            if (t === 'card') this.renderCardDrawTab({ autoShuffle: false, forceRebuild: true });
         },
 
         getKingCardPoolByCount(count) {
             const n = Math.max(2, Math.trunc(Number(count) || 2));
-            const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
-            return ["王", ...ranks.slice(0, Math.max(1, n - 1))].slice(0, n);
+            const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+            return ['王', ...ranks.slice(0, Math.max(1, n - 1))].slice(0, n);
         },
 
         async getResolvedPlayersForCard() {
@@ -809,7 +999,7 @@
 
         getCardLayout(count) {
             const n = Math.max(1, Math.trunc(Number(count) || 1));
-            const $grid = $("#fgr-card-grid");
+            const $grid = $('#fgr-card-grid');
             const gridWidth = Math.max(280, Math.trunc($grid.innerWidth() || 0) || 280);
             const cardW = 92;
             const cardH = 132;
@@ -841,28 +1031,28 @@
         },
 
         applyCardLayout(instant = false) {
-            const $grid = $("#fgr-card-grid");
-            const $cards = $grid.find(".fgr-poker-card");
+            const $grid = $('#fgr-card-grid');
+            const $cards = $grid.find('.fgr-poker-card');
             const layout = this.getCardLayout($cards.length);
             this.cardLayout = layout;
 
-            $grid.css("height", `${layout.height}px`);
+            $grid.css('height', `${layout.height}px`);
 
             $cards.each((idx, el) => {
                 const slot = layout.slots[idx];
                 const $el = $(el);
 
-                if (instant) $el.addClass("no-transition");
+                if (instant) $el.addClass('no-transition');
                 $el.css({
                     left: `${slot.left}px`,
                     top: `${slot.top}px`,
-                    transform: "rotate(0deg)",
+                    transform: 'rotate(0deg)',
                     zIndex: `${10 + idx}`,
                 });
 
                 if (instant) {
                     requestAnimationFrame(() => {
-                        $el.removeClass("no-transition");
+                        $el.removeClass('no-transition');
                     });
                 }
             });
@@ -882,12 +1072,12 @@
         },
 
         randomSuit() {
-            const suits = ["S", "H", "D", "C"];
+            const suits = ['S', 'H', 'D', 'C'];
             return suits[Math.floor(Math.random() * suits.length)];
         },
 
         getCardArtPath(card, suit) {
-            if (card === "王") {
+            if (card === '王') {
                 return `${EXT_PATH}/assets/cards/JOKER.svg`;
             }
             return `${EXT_PATH}/assets/cards/${card}${suit}.svg`;
@@ -895,24 +1085,27 @@
 
         makeCardVisuals(cards = []) {
             return cards.map((card) => {
-                const suit = card === "王" ? "JOKER" : this.randomSuit();
-                const art = card === "王" ? this.getCardArtPath(card, suit) : this.getCardArtPath(card, suit);
+                const suit = card === '王' ? 'JOKER' : this.randomSuit();
+                const art =
+                    card === '王'
+                        ? this.getCardArtPath(card, suit)
+                        : this.getCardArtPath(card, suit);
                 return { card, suit, art };
             });
         },
 
         applyCardVisualToElement($el, visual) {
-            const card = String(visual.card || "");
-            const suit = String(visual.suit || "");
-            const art = String(visual.art || "");
+            const card = String(visual.card || '');
+            const suit = String(visual.suit || '');
+            const art = String(visual.art || '');
 
-            $el.attr("data-card", card);
-            $el.attr("data-suit", suit);
+            $el.attr('data-card', card);
+            $el.attr('data-suit', suit);
 
             if (art) {
-                $el.find(".fgr-poker-art").attr("src", art);
+                $el.find('.fgr-poker-art').attr('src', art);
             } else {
-                $el.find(".fgr-poker-art").attr("src", "");
+                $el.find('.fgr-poker-art').attr('src', '');
             }
         },
 
@@ -935,7 +1128,7 @@
             try {
                 this.ensureCardSfx();
 
-                if (name === "flip") {
+                if (name === 'flip') {
                     const a = new Audio(`${EXT_PATH}/assets/sfx/flip.mp3`);
                     a.volume = 0.75;
                     a.play().catch(() => {});
@@ -952,7 +1145,7 @@
 
         getCardLayout(count) {
             const n = Math.max(1, Math.trunc(Number(count) || 1));
-            const $grid = $("#fgr-card-grid");
+            const $grid = $('#fgr-card-grid');
             const gridWidth = Math.max(280, Math.trunc($grid.innerWidth() || 0) || 280);
             const cardW = 92;
             const cardH = 132;
@@ -984,50 +1177,50 @@
         },
 
         applyCardLayout(instant = false) {
-            const $grid = $("#fgr-card-grid");
-            const $cards = $grid.find(".fgr-poker-card");
+            const $grid = $('#fgr-card-grid');
+            const $cards = $grid.find('.fgr-poker-card');
             const layout = this.getCardLayout($cards.length);
             this.cardLayout = layout;
 
-            $grid.css("height", `${layout.height}px`);
+            $grid.css('height', `${layout.height}px`);
 
             $cards.each((idx, el) => {
                 const slot = layout.slots[idx];
                 const $el = $(el);
 
-                if (instant) $el.addClass("no-transition");
+                if (instant) $el.addClass('no-transition');
                 $el.css({
                     left: `${slot.left}px`,
                     top: `${slot.top}px`,
-                    transform: "rotate(0deg)",
+                    transform: 'rotate(0deg)',
                     zIndex: `${10 + idx}`,
                 });
 
                 if (instant) {
                     requestAnimationFrame(() => {
-                        $el.removeClass("no-transition");
+                        $el.removeClass('no-transition');
                     });
                 }
             });
         },
 
         async runCardCollectShuffleDealAnimation() {
-            const $grid = $("#fgr-card-grid");
-            const $cards = $grid.find(".fgr-poker-card");
+            const $grid = $('#fgr-card-grid');
+            const $cards = $grid.find('.fgr-poker-card');
             if (!$cards.length) return;
 
             const layout = this.cardLayout || this.getCardLayout($cards.length);
             const centerLeft = Math.max(0, (layout.width - layout.cardW) / 2);
             const centerTop = Math.max(0, (layout.height - layout.cardH) / 2);
 
-            $cards.addClass("disabled").addClass("collecting");
+            $cards.addClass('disabled').addClass('collecting');
 
             await this.waitMs(20);
 
             $cards.each((idx, el) => {
                 const $el = $(el);
-                const offsetX = (idx % 6 - 2.5) * 3;
-                const offsetY = (Math.floor(idx / 6) % 3 - 1) * 3;
+                const offsetX = ((idx % 6) - 2.5) * 3;
+                const offsetY = ((Math.floor(idx / 6) % 3) - 1) * 3;
                 const rot = (idx % 2 ? 1 : -1) * (4 + (idx % 4));
 
                 $el.css({
@@ -1040,10 +1233,10 @@
 
             await this.waitMs(650);
 
-            $cards.removeClass("collecting").addClass("stack-shuffling");
-            this.playCardSfx("shuffle");
+            $cards.removeClass('collecting').addClass('stack-shuffling');
+            this.playCardSfx('shuffle');
             await this.waitMs(1100);
-            $cards.removeClass("stack-shuffling");
+            $cards.removeClass('stack-shuffling');
 
             this.currentCardPool = this.shuffleArray(this.currentCardPool);
             this.currentCardVisuals = this.makeCardVisuals(this.currentCardPool);
@@ -1052,10 +1245,10 @@
                 const visual = this.currentCardVisuals[idx];
                 const $el = $(el);
                 this.applyCardVisualToElement($el, visual);
-                $el.removeClass("flipped");
+                $el.removeClass('flipped');
             });
 
-            $cards.addClass("dealing");
+            $cards.addClass('dealing');
 
             for (let i = 0; i < $cards.length; i++) {
                 const el = $cards[i];
@@ -1063,19 +1256,19 @@
                 const $el = $(el);
 
                 $el.css({ zIndex: `${300 + i}` });
-                this.playCardSfx("deal");
+                this.playCardSfx('deal');
                 await this.waitMs(90);
                 $el.css({
                     left: `${slot.left}px`,
                     top: `${slot.top}px`,
-                    transform: "rotate(0deg)",
+                    transform: 'rotate(0deg)',
                     zIndex: `${20 + i}`,
                 });
             }
 
             await this.waitMs(420);
-            $cards.removeClass("dealing");
-            $cards.removeClass("disabled");
+            $cards.removeClass('dealing');
+            $cards.removeClass('disabled');
         },
 
         async renderCardDrawTab(options = {}) {
@@ -1087,16 +1280,16 @@
                 const forceRebuild = !!options.forceRebuild;
 
                 let needBuild = forceRebuild;
-                const $grid = $("#fgr-card-grid");
-                if (!$grid.find(".fgr-poker-card").length) needBuild = true;
+                const $grid = $('#fgr-card-grid');
+                if (!$grid.find('.fgr-poker-card').length) needBuild = true;
 
                 const players = await this.getResolvedPlayersForCard();
                 const cards = this.getKingCardPoolByCount(players.length || 2);
 
                 const tip = players.length
-                    ? `当前玩家：${players.join("、")}（共${players.length}人）`
-                    : "当前未识别到玩家，默认展示2张牌。请先在聊天里确保玩家名单可识别。";
-                $("#fgr-card-players-tip").text(tip);
+                    ? `当前玩家：${players.join('、')}（共${players.length}人）`
+                    : '当前未识别到玩家，默认展示2张牌。请先在聊天里确保玩家名单可识别。';
+                $('#fgr-card-players-tip').text(tip);
 
                 if (needBuild) {
                     this.currentCardPool = cards.slice();
@@ -1138,7 +1331,7 @@
             if (this.cardBusy) return;
             this.cardBusy = true;
             try {
-                if (!$("#fgr-card-grid .fgr-poker-card").length) {
+                if (!$('#fgr-card-grid .fgr-poker-card').length) {
                     await this.renderCardDrawTab({ autoShuffle: false, forceRebuild: true });
                     return;
                 }
@@ -1156,31 +1349,31 @@
 
             this.cardBusy = true;
 
-            const card = String($card.attr("data-card") || "").trim();
+            const card = String($card.attr('data-card') || '').trim();
             if (!card) {
                 this.cardBusy = false;
                 return;
             }
 
-            const $allCards = $("#fgr-card-grid .fgr-poker-card");
+            const $allCards = $('#fgr-card-grid .fgr-poker-card');
 
-            $allCards.addClass("disabled");
-            this.playCardSfx("flip");
-            $card.addClass("flipped");
+            $allCards.addClass('disabled');
+            this.playCardSfx('flip');
+            $card.addClass('flipped');
 
             await this.waitMs(560);
 
             if (globalThis.FGR_ACTIONS?.setKingPresetUserCard) {
                 const presetRes = await globalThis.FGR_ACTIONS.setKingPresetUserCard(card);
                 if (!presetRes?.ok) {
-                    toastr.error("设置 user 预设牌失败");
-                    $allCards.removeClass("disabled");
+                    toastr.error('设置 user 预设牌失败');
+                    $allCards.removeClass('disabled');
                     this.cardBusy = false;
                     return;
                 }
             } else {
-                toastr.error("缺少 setKingPresetUserCard 动作");
-                $allCards.removeClass("disabled");
+                toastr.error('缺少 setKingPresetUserCard 动作');
+                $allCards.removeClass('disabled');
                 this.cardBusy = false;
                 return;
             }
@@ -1188,15 +1381,15 @@
             if (globalThis.FGR_ACTIONS?.rollKingByClick) {
                 const rollRes = await globalThis.FGR_ACTIONS.rollKingByClick();
                 if (!rollRes?.ok) {
-                    toastr.error(rollRes?.error || "进入下一轮失败");
-                    $allCards.removeClass("disabled");
+                    toastr.error(rollRes?.error || '进入下一轮失败');
+                    $allCards.removeClass('disabled');
                     this.cardBusy = false;
                     return;
                 }
                 toastr.success(`你抽到 ${card}，已进入国王游戏下一回合`);
             } else {
-                toastr.error("缺少 rollKingByClick 动作");
-                $allCards.removeClass("disabled");
+                toastr.error('缺少 rollKingByClick 动作');
+                $allCards.removeClass('disabled');
                 this.cardBusy = false;
                 return;
             }
@@ -1205,15 +1398,15 @@
         },
 
         closeKingDirectorModal() {
-            $("#fgr-king-director-modal").hide();
+            $('#fgr-king-director-modal').hide();
         },
 
         renderKingDirectorRows() {
             const packet = this.kingDirectorPacket || this.getChatState()?.pendingPacket || null;
-            const $rows = $("#fgr-king-director-rows");
+            const $rows = $('#fgr-king-director-rows');
             $rows.empty();
 
-            if (!packet || packet.gameType !== "king") {
+            if (!packet || packet.gameType !== 'king') {
                 $rows.append(`<tr><td colspan="2">当前无国王回合可编辑</td></tr>`);
                 return;
             }
@@ -1222,18 +1415,22 @@
             const cards = this.getKingCardPoolByCount(players.length || 2);
 
             const presetMap = new Map();
-            const oldAssign = Array.isArray(packet?.king?.assignments) ? packet.king.assignments : [];
+            const oldAssign = Array.isArray(packet?.king?.assignments)
+                ? packet.king.assignments
+                : [];
             oldAssign.forEach((a) => {
-                const p = String(a?.player || "").trim();
-                const c = String(a?.card || "").trim();
+                const p = String(a?.player || '').trim();
+                const c = String(a?.card || '').trim();
                 if (p && c) presetMap.set(c, p);
             });
 
             cards.forEach((card) => {
-                const $tr = $("<tr></tr>");
+                const $tr = $('<tr></tr>');
                 const $tdCard = $(`<td>${card}</td>`);
                 const $tdSel = $(`<td></td>`);
-                const $sel = $(`<select class="text_pole fgr-king-player-select" data-card="${card}"></select>`);
+                const $sel = $(
+                    `<select class="text_pole fgr-king-player-select" data-card="${card}"></select>`
+                );
 
                 $sel.append(`<option value="">请选择玩家</option>`);
                 players.forEach((p) => {
@@ -1252,22 +1449,22 @@
 
         async applyKingDirectorFromModal() {
             const packet = this.kingDirectorPacket || this.getChatState()?.pendingPacket || null;
-            if (!packet || packet.gameType !== "king") {
-                return toastr.warning("当前没有国王回合可应用");
+            if (!packet || packet.gameType !== 'king') {
+                return toastr.warning('当前没有国王回合可应用');
             }
 
             const assignments = [];
             const usedPlayers = new Set();
 
-            $("#fgr-king-director-rows .fgr-king-player-select").each((_, el) => {
+            $('#fgr-king-director-rows .fgr-king-player-select').each((_, el) => {
                 const $el = $(el);
-                const card = String($el.data("card") || "").trim();
-                const player = String($el.val() || "").trim();
+                const card = String($el.data('card') || '').trim();
+                const player = String($el.val() || '').trim();
                 if (card) assignments.push({ card, player });
             });
 
             if (!assignments.length) {
-                return toastr.warning("请先指定牌面对应玩家");
+                return toastr.warning('请先指定牌面对应玩家');
             }
 
             for (const a of assignments) {
@@ -1281,22 +1478,21 @@
             if (globalThis.FGR_ACTIONS?.applyKingDirectorEdits) {
                 const res = await globalThis.FGR_ACTIONS.applyKingDirectorEdits(assignments);
                 if (!res?.ok) {
-                    return toastr.error(res?.error || "应用国王导演编辑失败");
+                    return toastr.error(res?.error || '应用国王导演编辑失败');
                 }
-                toastr.success("国王导演编辑已应用");
+                toastr.success('国王导演编辑已应用');
                 this.closeKingDirectorModal();
                 return;
             }
 
-            toastr.error("缺少 applyKingDirectorEdits 动作");
+            toastr.error('缺少 applyKingDirectorEdits 动作');
         },
 
         loadFromSettings() {
             const s = this.getSettings();
             const lib = this.getMapLibrary(s);
 
-            const activeItem =
-                this.findMapByName(lib, lib.active) || lib.items[0];
+            const activeItem = this.findMapByName(lib, lib.active) || lib.items[0];
             s.flightMapJson = JSON.stringify(activeItem.map, null, 2);
 
             this.renderMapSelector(s, lib);
@@ -1304,175 +1500,146 @@
 
             this.renderPlayerProfileSelect();
 
-            $("#fgr-edit-user-aliases").val(s.userAliases);
-            $("#fgr-edit-user-canonical-name").val(s.userCanonicalName);
-            $("#fgr-edit-name-blacklist").val(s.nameBlacklist);
+            $('#fgr-edit-player-input').val('');
+            $('#fgr-edit-user-aliases').val(s.userAliases);
+            $('#fgr-edit-user-canonical-name').val(s.userCanonicalName);
+            $('#fgr-edit-name-blacklist').val(s.nameBlacklist);
 
-            $("#fgr-set-round-trigger").val(s.roundTriggerWords);
-            $("#fgr-set-flight-start").val(s.flightStartKeywords);
-            $("#fgr-set-flight-replay").val(s.flightReplayKeywords);
-            $("#fgr-set-king-start").val(
-                s.kingStartKeywords || "国王游戏,玩国王游戏,开始玩国王游戏"
+            $('#fgr-set-round-trigger').val(s.roundTriggerWords);
+            $('#fgr-set-flight-start').val(s.flightStartKeywords);
+            $('#fgr-set-flight-replay').val(s.flightReplayKeywords);
+            $('#fgr-set-king-start').val(
+                s.kingStartKeywords || '国王游戏,玩国王游戏,开始玩国王游戏'
             );
 
-            const diceMode = this.normalizeDiceMode(s.diceCountMode || "auto");
-            $("#fgr-set-dice-count-mode").val(diceMode);
-            $("#fgr-set-dice-fixed-count").val(
+            const diceMode = this.normalizeDiceMode(s.diceCountMode || 'auto');
+            $('#fgr-set-dice-count-mode').val(diceMode);
+            $('#fgr-set-dice-fixed-count').val(
                 Number.isFinite(Number(s.diceFixedCount))
                     ? Math.min(2, Math.max(1, Number(s.diceFixedCount)))
                     : 1
             );
-            $("#fgr-set-dice-auto-switch-player-count").val(
+            $('#fgr-set-dice-auto-switch-player-count').val(
                 Number.isFinite(Number(s.diceAutoSwitchPlayerCount))
                     ? Math.max(2, Number(s.diceAutoSwitchPlayerCount))
                     : 6
             );
 
-            $("#fgr-map-anim-speed").val(
-                String(Number(s.clickAnimationMs) || 2200)
-            );
-            $("#fgr-set-fairness-mode").val(s.fairnessMode);
+            $('#fgr-map-anim-speed').val(String(Number(s.clickAnimationMs) || 2200));
+            $('#fgr-set-fairness-mode').val(s.fairnessMode);
 
-            $("#fgr-set-flight-map-json").val(s.flightMapJson);
+            $('#fgr-set-flight-map-json').val(s.flightMapJson);
 
             this.setMapLibrary(s, lib);
             this.saveSettings();
         },
 
-        open(tab) {
-            const remembered = String(this.lastTab || localStorage.getItem(LAST_TAB_STORAGE_KEY) || "map").trim() || "map";
-            const targetTab = remembered;
+open(tab) {
+    const remembered =
+        String(
+            this.lastTab || localStorage.getItem(LAST_TAB_STORAGE_KEY) || 'map'
+        ).trim() || 'map';
+    const targetTab = remembered;
 
-            try {
-                this.loadFromSettings();
-                this.switchTab(targetTab);
-                this.renderDirectorEditor();
-                $("#fgr-control-modal").css("display", "flex");
-            } catch (err) {
-                console.error("[fair-game-referee] 打开面板失败", err);
-                toastr.error(
-                    "打开面板失败：" + (err && err.message ? err.message : err)
-                );
-            }
-        },
+    try {
+        const s = this.getSettings();
+        const ensured = this.ensureCharacterNamedProfile(s);
+        if (ensured.changed) {
+            this.saveSettings();
+        }
+
+        this.loadFromSettings();
+        this.switchTab(targetTab);
+        this.renderDirectorEditor();
+        $('#fgr-control-modal').css('display', 'flex');
+    } catch (err) {
+        console.error('[fair-game-referee] 打开面板失败', err);
+        toastr.error('打开面板失败：' + (err && err.message ? err.message : err));
+    }
+},
 
         openDirectorPanel() {
             try {
-                this.open("map");
-                if (typeof this.renderDirectorEditor === "function") {
+                this.open('map');
+                if (typeof this.renderDirectorEditor === 'function') {
                     this.renderDirectorEditor();
                 }
-                const el = document.getElementById("fgr-director-section");
+                const el = document.getElementById('fgr-director-section');
                 if (el && el.scrollIntoView) {
-                    el.scrollIntoView({ behavior: "smooth", block: "start" });
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             } catch (err) {
-                console.error("[fair-game-referee] 打开导演编辑失败", err);
+                console.error('[fair-game-referee] 打开导演编辑失败', err);
             }
         },
 
         close() {
-            $("#fgr-control-modal").hide();
+            $('#fgr-control-modal').hide();
         },
 
         openDirectorOnlyModal() {
             try {
-                if (typeof this.renderDirectorEditor === "function") {
-                    this.renderDirectorEditor("#fgr-director-quick-rows");
+                if (typeof this.renderDirectorEditor === 'function') {
+                    this.renderDirectorEditor('#fgr-director-quick-rows');
                 }
-                const $modal = $("#fgr-director-quick-modal");
-                $modal.css("display", "flex");
+                const $modal = $('#fgr-director-quick-modal');
+                $modal.css('display', 'flex');
                 requestAnimationFrame(() => {
-                    $modal.addClass("show");
+                    $modal.addClass('show');
                 });
             } catch (err) {
-                console.error("[fair-game-referee] 打开导演独立面板失败", err);
+                console.error('[fair-game-referee] 打开导演独立面板失败', err);
             }
         },
 
         closeDirectorOnlyModal() {
-            const $modal = $("#fgr-director-quick-modal");
-            $modal.removeClass("show");
+            const $modal = $('#fgr-director-quick-modal');
+            $modal.removeClass('show');
             setTimeout(() => {
                 $modal.hide();
             }, 180);
         },
 
-        async saveEditTab() {
-            const s = this.getSettings();
-            const lib = this.getPlayerProfileLibrary(s);
+async saveEditTab() {
+    const s = this.getSettings();
 
-            let activeName = String(
-                $("#fgr-edit-profile-select").val() ||
-                    s.activePlayerProfileName ||
-                    ""
-            ).trim();
-            if (!activeName) activeName = "默认名单";
+    s.userAliases = String($('#fgr-edit-user-aliases').val() || '');
+    s.userCanonicalName = 'user';
+    s.nameBlacklist = String($('#fgr-edit-name-blacklist').val() || '');
 
-            if (!Object.hasOwn(lib, activeName)) {
-                lib[activeName] = "";
-            }
-
-            lib[activeName] = String($("#fgr-edit-manual-players").val() || "");
-            s.activePlayerProfileName = activeName;
-            this.setPlayerProfileLibrary(s, lib);
-
-            s.manualPlayers = lib[activeName];
-
-            s.userAliases = String($("#fgr-edit-user-aliases").val() || "");
-            s.userCanonicalName =
-                String(
-                    $("#fgr-edit-user-canonical-name").val() || "user"
-                ).trim() || "user";
-            s.nameBlacklist = String($("#fgr-edit-name-blacklist").val() || "");
-
-            this.saveSettings();
-            this.renderPlayerProfileSelect();
-            toastr.success("编辑配置已保存（已保存到当前玩家名单）");
-        },
+    this.onPlayerMultiSelectChange();
+    this.saveSettings();
+    toastr.success('编辑配置已保存');
+},
 
         saveSettingsTab() {
             const s = this.getSettings();
 
-            s.roundTriggerWords = String(
-                $("#fgr-set-round-trigger").val() || ""
-            );
-            s.flightStartKeywords = String(
-                $("#fgr-set-flight-start").val() || ""
-            );
-            s.flightReplayKeywords = String(
-                $("#fgr-set-flight-replay").val() || ""
-            );
-            s.kingStartKeywords = String($("#fgr-set-king-start").val() || "");
+            s.roundTriggerWords = String($('#fgr-set-round-trigger').val() || '');
+            s.flightStartKeywords = String($('#fgr-set-flight-start').val() || '');
+            s.flightReplayKeywords = String($('#fgr-set-flight-replay').val() || '');
+            s.kingStartKeywords = String($('#fgr-set-king-start').val() || '');
 
-            s.diceCountMode = this.normalizeDiceMode(
-                $("#fgr-set-dice-count-mode").val()
-            );
+            s.diceCountMode = this.normalizeDiceMode($('#fgr-set-dice-count-mode').val());
 
             {
-                const fixed = Math.trunc(
-                    Number($("#fgr-set-dice-fixed-count").val())
-                );
-                s.diceFixedCount = Number.isFinite(fixed)
-                    ? Math.min(2, Math.max(1, fixed))
-                    : 1;
+                const fixed = Math.trunc(Number($('#fgr-set-dice-fixed-count').val()));
+                s.diceFixedCount = Number.isFinite(fixed) ? Math.min(2, Math.max(1, fixed)) : 1;
             }
 
             {
                 const threshold = Math.trunc(
-                    Number($("#fgr-set-dice-auto-switch-player-count").val())
+                    Number($('#fgr-set-dice-auto-switch-player-count').val())
                 );
                 s.diceAutoSwitchPlayerCount = Number.isFinite(threshold)
                     ? Math.max(2, threshold)
                     : 6;
             }
 
-            s.fairnessMode = String(
-                $("#fgr-set-fairness-mode").val() || "strict"
-            );
+            s.fairnessMode = String($('#fgr-set-fairness-mode').val() || 'strict');
 
             if (!this.validateMapInTab()) return;
-            s.flightMapJson = String($("#fgr-set-flight-map-json").val() || "");
+            s.flightMapJson = String($('#fgr-set-flight-map-json').val() || '');
 
             let parsedMap = null;
             try {
@@ -1480,39 +1647,37 @@
             } catch (_e) {
                 parsedMap = null;
             }
-            if (!parsedMap || typeof parsedMap !== "object") {
-                return toastr.error("地图JSON解析失败");
+            if (!parsedMap || typeof parsedMap !== 'object') {
+                return toastr.error('地图JSON解析失败');
             }
 
             const safeMap = this.getSafeMapFromRaw(parsedMap);
             if (!safeMap) {
-                return toastr.error("地图结构无效，无法保存到可选地图");
+                return toastr.error('地图结构无效，无法保存到可选地图');
             }
 
             s.flightMapJson = JSON.stringify(safeMap, null, 2);
-            $("#fgr-set-flight-map-json").val(s.flightMapJson);
+            $('#fgr-set-flight-map-json').val(s.flightMapJson);
 
             const lib = this.getMapLibrary(s);
 
             const currentName =
-                String($("#fgr-map-select").val() || "").trim() ||
-                String(lib.active || "").trim() ||
-                "新地图";
+                String($('#fgr-map-select').val() || '').trim() ||
+                String(lib.active || '').trim() ||
+                '新地图';
 
             const inputName = window.prompt(
-                "请输入新地图名称（将新增，不覆盖）：",
-                currentName + "-副本"
+                '请输入新地图名称（将新增，不覆盖）：',
+                currentName + '-副本'
             );
             if (inputName === null) {
                 this.saveSettings();
-                return toastr.info(
-                    "已保存设置，但未新增到可选地图（你取消了命名）"
-                );
+                return toastr.info('已保存设置，但未新增到可选地图（你取消了命名）');
             }
 
-            const baseName = String(inputName || "").trim();
+            const baseName = String(inputName || '').trim();
             if (!baseName) {
-                return toastr.warning("地图名称不能为空");
+                return toastr.warning('地图名称不能为空');
             }
 
             const used = new Set(lib.items.map((i) => i.name));
@@ -1531,58 +1696,58 @@
         },
         async handleUndoRound() {
             if (!globalThis.FGR_ACTIONS?.undoRound) {
-                toastr.error("缺少 undoRound 动作");
+                toastr.error('缺少 undoRound 动作');
                 return;
             }
 
             const res = await globalThis.FGR_ACTIONS.undoRound();
             if (!res?.ok) {
-                toastr.warning(res?.error || "没有可回退的上一回合");
+                toastr.warning(res?.error || '没有可回退的上一回合');
                 return;
             }
 
             toastr.success(`已回退到第${res.round}回合`);
-            if ($("#fgr-tab-map").hasClass("active")) this.renderBoardCanvas();
-            if ($("#fgr-tab-card").hasClass("active")) {
+            if ($('#fgr-tab-map').hasClass('active')) this.renderBoardCanvas();
+            if ($('#fgr-tab-card').hasClass('active')) {
                 await this.renderCardDrawTab({ autoShuffle: false });
             }
         },
 
         async handleRedoRound() {
             if (!globalThis.FGR_ACTIONS?.redoRound) {
-                toastr.error("缺少 redoRound 动作");
+                toastr.error('缺少 redoRound 动作');
                 return;
             }
 
             const res = await globalThis.FGR_ACTIONS.redoRound();
             if (!res?.ok) {
-                toastr.warning(res?.error || "没有可前进的下一回合");
+                toastr.warning(res?.error || '没有可前进的下一回合');
                 return;
             }
 
             toastr.success(`已前进到第${res.round}回合`);
-            if ($("#fgr-tab-map").hasClass("active")) this.renderBoardCanvas();
-            if ($("#fgr-tab-card").hasClass("active")) {
+            if ($('#fgr-tab-map').hasClass('active')) this.renderBoardCanvas();
+            if ($('#fgr-tab-card').hasClass('active')) {
                 await this.renderCardDrawTab({ autoShuffle: false });
             }
         },
 
         async handleKingResetProgress() {
             if (!globalThis.FGR_ACTIONS?.resetKingProgress) {
-                toastr.error("缺少 resetKingProgress 动作");
+                toastr.error('缺少 resetKingProgress 动作');
                 return;
             }
 
-            const ok = window.confirm("确定重置国王游戏回合进度吗？会清空当前国王回合包与回合数。");
+            const ok = window.confirm('确定重置国王游戏回合进度吗？会清空当前国王回合包与回合数。');
             if (!ok) return;
 
             const res = await globalThis.FGR_ACTIONS.resetKingProgress();
             if (!res?.ok) {
-                toastr.error(res?.error || "重置失败");
+                toastr.error(res?.error || '重置失败');
                 return;
             }
 
-            toastr.success("国王回合进度已重置");
+            toastr.success('国王回合进度已重置');
             await this.renderCardDrawTab({ autoShuffle: true, forceRebuild: true });
         },
     };
